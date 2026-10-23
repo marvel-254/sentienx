@@ -3,47 +3,38 @@ SENTIENX Live API Server - Port 8080
 Provides real-time trading data to the dashboard
 """
 
-from flask import Flask, jsonify
+import sys
+from pathlib import Path
+
+# Make core/ and ml_pipeline/ importable regardless of where this runs
+_SRC = Path(__file__).resolve().parent.parent
+for _p in (_SRC, _SRC / "ml" / "pipeline"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-import sqlite3
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Dict
 import pandas as pd
 import numpy as np
 import math
+from core.db_adapter import get_adapter
 from ml_pipeline.breakout_analyzer import BreakoutAnalyzer, get_breakout_analysis
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
-# Database setup
-BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "sentienx_trading.db"
-
-def get_db():
-    """Get database connection"""
-    try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        return conn
-    except Exception:
-        return None
+# Database adapter (PostgreSQL when DATABASE_URL is set, SQLite locally)
+_db_adapter = get_adapter()
 
 def calculate_bot_strength():
     """Calculate dynamic bot strength (0-100) based on multiple factors"""
     try:
-        conn = get_db()
-        if not conn:
-            return 50.0
-        
-        cursor = conn.cursor()
-        
-        # Get trade statistics
-        cursor.execute("""
-            SELECT 
+        stats = _db_adapter.fetchone("""
+            SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as total_wins,
@@ -53,107 +44,119 @@ def calculate_bot_strength():
                 STDDEV(profit_loss) as stddev_pnl,
                 MAX(profit_loss) as best_trade,
                 MIN(profit_loss) as worst_trade
-            FROM trading_history WHERE status='closed'
-        """)
-        
-        stats = cursor.fetchone()
-        conn.close()
-        
-        if not stats or stats['total'] is None or stats['total'] == 0:
-            return 50.0
-        
+            FROM trading_history WHERE status = 'closed'
+        """) if _db_adapter.is_postgres else None
+
+        if stats is None:
+            # SQLite has no STDDEV aggregate - compute variance in Python
+            rows = _db_adapter.fetchall(
+                "SELECT profit_loss FROM trading_history WHERE status = 'closed'"
+            )
+            values = [float(r['profit_loss']) for r in rows
+                      if r['profit_loss'] is not None]
+            if not values:
+                return 50.0
+            n = len(values)
+            mean = sum(values) / n
+            variance = sum((v - mean) ** 2 for v in values) / (n - 1) if n > 1 else 0.0
+            stddev = variance ** 0.5
+            stats = {
+                'total': n,
+                'wins': sum(1 for v in values if v > 0),
+                'total_wins': sum(v for v in values if v > 0),
+                'total_losses': abs(sum(v for v in values if v < 0)),
+                'total_pnl': sum(values),
+                'avg_pnl': mean,
+                'stddev_pnl': stddev,
+                'best_trade': max(values),
+                'worst_trade': min(values),
+            }
+
         total = stats['total']
+        if not total:
+            return 50.0
+
         wins = stats['wins'] or 0
         total_wins = stats['total_wins'] or 0
         total_losses = stats['total_losses'] or 0
         total_pnl = stats['total_pnl'] or 0
         avg_pnl = stats['avg_pnl'] or 0
         stddev = stats['stddev_pnl'] or 0
-        best_trade = stats['best_trade'] or 0
-        worst_trade = stats['worst_trade'] or 0
-        
+
         # Calculate components (each weighted)
-        
+
         # 1. Win Rate (0-40 points)
         win_rate = (wins / total * 100) if total > 0 else 0
         win_rate_score = min(40, (win_rate / 100) * 40)
-        
+
         # 2. Profit Factor (0-30 points)
         profit_factor = (total_wins / total_losses * 100) if total_losses > 0 else 100
         pf_score = min(30, (profit_factor / 200) * 30)  # Normalize to 200
-        
+
         # 3. P&L Growth Trend (0-20 points)
         pnl_score = min(20, max(0, (total_pnl / 100) * 20))
-        
+
         # 4. Consistency (0-10 points) - lower volatility = more consistent
         consistency_score = 0
-        if stddev > 0:
-            consistency = 1 / (1 + stddev / avg_pnl) if avg_pnl != 0 else 0.5
+        if stddev and avg_pnl != 0:
+            consistency = 1 / (1 + stddev / avg_pnl)
             consistency_score = consistency * 10
-        
+
         # Calculate total strength
         total_strength = win_rate_score + pf_score + pnl_score + consistency_score
-        
+
         # Add momentum (boost if on winning streak)
-        cursor = get_db().cursor() if get_db() else None
-        if cursor:
-            cursor.execute("""
-                SELECT COUNT(*) as recent_wins FROM trading_history 
-                WHERE status='closed' ORDER BY timestamp DESC LIMIT 10
-            """)
-            recent = cursor.fetchone()
-            if recent and recent['recent_wins'] and recent['recent_wins'] >= 7:
-                total_strength = min(100, total_strength + 5)
-        
+        recent = _db_adapter.fetchone("""
+            SELECT COUNT(*) FILTER (WHERE profit_loss > 0) as recent_wins
+            FROM (
+                SELECT profit_loss FROM trading_history
+                WHERE status = 'closed' ORDER BY timestamp DESC LIMIT 10
+            ) recent
+        """) if _db_adapter.is_postgres else None
+
+        if recent is None:
+            rows = _db_adapter.fetchall(
+                "SELECT profit_loss FROM trading_history "
+                "WHERE status = 'closed' ORDER BY timestamp DESC LIMIT 10"
+            )
+            recent = {'recent_wins': sum(1 for r in rows
+                                         if r['profit_loss'] is not None
+                                         and r['profit_loss'] > 0)}
+        if recent and recent['recent_wins'] and recent['recent_wins'] >= 7:
+            total_strength = min(100, total_strength + 5)
+
+
         return min(100, max(0, total_strength))
-    
+
     except Exception:
         return 50.0
 
 def get_pnl_breakdown():
     """Get real P&L breakdown: total profits vs total losses"""
     try:
-        conn = get_db()
-        if not conn:
-            return {'profitable_trades': 0, 'losing_trades': 0, 'break_even': 0}
-        
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
+        result = _db_adapter.fetchone("""
+            SELECT
                 SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as total_profits,
                 SUM(CASE WHEN profit_loss < 0 THEN ABS(profit_loss) ELSE 0 END) as total_losses,
                 SUM(CASE WHEN profit_loss = 0 THEN 1 ELSE 0 END) as break_even_count,
                 COUNT(*) as total_trades
-            FROM trading_history WHERE status='closed'
+            FROM trading_history WHERE status = 'closed'
         """)
-        
-        result = cursor.fetchone()
-        conn.close()
-        
+
         if not result:
             return {'profitable_trades': 0, 'losing_trades': 0, 'break_even': 0}
-        
+
         total_profits = result['total_profits'] or 0
         total_losses = result['total_losses'] or 0
-        
+
         return {
             'profitable_trades': float(total_profits),
             'losing_trades': float(total_losses),
             'break_even': result['break_even_count'] or 0
         }
-    
+
     except Exception:
         return {'profitable_trades': 0, 'losing_trades': 0, 'break_even': 0}
-
-def get_db():
-    """Get database connection"""
-    try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        return conn
-    except Exception:
-        return None
 
 # API Routes
 
@@ -164,6 +167,7 @@ def root():
         "name": "SENTIENX Trading API",
         "version": "1.0.0",
         "status": "running",
+        "database": "postgresql" if _db_adapter.is_postgres else "sqlite",
         "documentation": "/docs",
         "endpoints": {
             "account": "/api/account",
@@ -180,11 +184,11 @@ def root():
 def health_check():
     """Health check endpoint"""
     try:
-        conn = get_db()
-        if conn:
-            conn.close()
-            return jsonify({"status": "healthy", "database": "connected"})
-        return jsonify({"status": "healthy", "database": "disconnected"})
+        _db_adapter.fetchone("SELECT 1")
+        return jsonify({
+            "status": "healthy",
+            "database": "postgresql" if _db_adapter.is_postgres else "sqlite"
+        })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
 
@@ -192,15 +196,9 @@ def health_check():
 def get_account():
     """Get live account data"""
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        cursor = conn.cursor()
-        
         # Get trade statistics
-        cursor.execute("""
-            SELECT 
+        stats = _db_adapter.fetchone("""
+            SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losses,
@@ -210,21 +208,18 @@ def get_account():
                 AVG(profit_loss) as avg_trade
             FROM trading_history
         """)
-        
-        stats = cursor.fetchone()
-        
+
         total = (stats['total'] or 0) if stats else 0
         wins = (stats['wins'] or 0) if stats else 0
         losses = (stats['losses'] or 0) if stats else 0
         total_pnl = (stats['total_pnl'] or 0.0) if stats else 0.0
-        
+
         # Get open positions
-        cursor.execute("SELECT COUNT(*) as open FROM trading_history WHERE status='open'")
-        open_pos = cursor.fetchone()
-        open_positions = open_pos['open'] or 0 if open_pos else 0
-        
-        conn.close()
-        
+        open_row = _db_adapter.fetchone(
+            "SELECT COUNT(*) as open FROM trading_history WHERE status = 'open'"
+        )
+        open_positions = (open_row['open'] or 0) if open_row else 0
+
         return jsonify({
             "balance": 1000.0,
             "equity": 1000.0 + float(total_pnl),
@@ -253,18 +248,13 @@ def get_account():
 def get_account_balance():
     """Get account balance"""
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        cursor = conn.cursor()
-        cursor.execute("SELECT SUM(profit_loss) as total_pnl FROM trading_history")
-        result = cursor.fetchone()
-        conn.close()
-        
-        total_pnl = result['total_pnl'] or 0 if result else 0
+        result = _db_adapter.fetchone(
+            "SELECT SUM(profit_loss) as total_pnl FROM trading_history"
+        )
+
+        total_pnl = (result['total_pnl'] or 0) if result else 0
         balance = 1000.0 + float(total_pnl)
-        
+
         return jsonify({
             "balance": balance,
             "currency": "USD",
@@ -277,16 +267,11 @@ def get_account_balance():
 def get_account_equity():
     """Get account equity"""
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        cursor = conn.cursor()
-        cursor.execute("SELECT SUM(profit_loss) as total_pnl FROM trading_history")
-        result = cursor.fetchone()
-        conn.close()
-        
-        total_pnl = result['total_pnl'] or 0 if result else 0
+        result = _db_adapter.fetchone(
+            "SELECT SUM(profit_loss) as total_pnl FROM trading_history"
+        )
+
+        total_pnl = (result['total_pnl'] or 0) if result else 0
         equity = 1000.0 + float(total_pnl)
         
         return jsonify({
@@ -302,26 +287,23 @@ def get_account_equity():
 @app.route('/api/trades')
 def get_trades():
     """Get trading history"""
-    limit = 100
+    limit = request.args.get('limit', 100, type=int)
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        query = """
-            SELECT 
-                symbol, direction, entry_price, exit_price, 
+        df = _db_adapter.read_df(
+            """
+            SELECT
+                symbol, direction, entry_price, exit_price,
                 volume, profit_loss, status, timestamp, strategy
-            FROM trading_history 
-            ORDER BY timestamp DESC 
+            FROM trading_history
+            ORDER BY timestamp DESC
             LIMIT ?
-        """
-        df = pd.read_sql_query(query, conn, params=(limit,))
-        conn.close()
-        
+            """,
+            (limit,),
+        )
+
         if df.empty:
             return jsonify({"trades": [], "count": 0})
-        
+
         return jsonify({
             "trades": df.to_dict('records'),
             "count": len(df)
@@ -333,22 +315,16 @@ def get_trades():
 def get_pnl_data():
     """Get P&L data"""
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        query = '''
-            SELECT 
-                DATE(timestamp) as date,
+        date_part = _db_adapter.date_expr('timestamp')
+        df = _db_adapter.read_df(f"""
+            SELECT
+                {date_part} as date,
                 SUM(profit_loss) as daily_pnl,
                 COUNT(*) as trades
-            FROM trading_history 
-            GROUP BY DATE(timestamp)
+            FROM trading_history
+            GROUP BY {date_part}
             ORDER BY date ASC
-        '''
-        
-        df = pd.read_sql_query(query, conn)
-        conn.close()
+        """)
         
         if df.empty:
             return jsonify({"pnl_data": [], "count": 0})
@@ -368,14 +344,8 @@ def get_pnl_data():
 def get_statistics():
     """Get trading statistics"""
     try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
+        stats = _db_adapter.fetchone("""
+            SELECT
                 COUNT(*) as total_trades,
                 SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
                 SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losing_trades,
@@ -385,16 +355,12 @@ def get_statistics():
                 MIN(profit_loss) as worst_trade
             FROM trading_history
         """)
-        
-        stats = cursor.fetchone()
-        
-        total = stats['total_trades'] or 0 if stats else 0
-        wins = stats['winning_trades'] or 0 if stats else 0
-        losses = stats['losing_trades'] or 0 if stats else 0
-        total_pnl = stats['total_pnl'] or 0 if stats else 0
-        
-        conn.close()
-        
+
+        total = (stats['total_trades'] or 0) if stats else 0
+        wins = (stats['winning_trades'] or 0) if stats else 0
+        losses = (stats['losing_trades'] or 0) if stats else 0
+        total_pnl = (stats['total_pnl'] or 0) if stats else 0
+
         return jsonify({
             "total_trades": total,
             "winning_trades": wins,

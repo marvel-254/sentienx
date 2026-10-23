@@ -6,3 +6,4 @@ __pycache__/
 *.db
 logs/
 .pytest_cache/
+.render_env

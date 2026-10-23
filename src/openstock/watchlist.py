@@ -1,28 +1,33 @@
-"""Per-symbol watchlist backed by the SENTIENX SQLite database.
+"""Per-symbol watchlist backed by the central SENTIENX adapter.
 
 Port of OpenStock's watchlist (database/models/watchlist.model.ts +
-lib/actions/watchlist.actions.ts) from MongoDB to sqlite3. SENTIENX is
+lib/actions/watchlist.actions.ts) from MongoDB. SENTIENX is
 single-user, so there is no user_id column.
+
+Uses core.db_adapter: PostgreSQL when DATABASE_URL is set (Render),
+SQLite locally. Tests may pass an explicit db_path to pin SQLite.
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import List, Optional, Union
+
+try:
+    from core.db_adapter import DatabaseAdapter, get_adapter
+except ImportError:
+    from core.db_adapter import DatabaseAdapter, get_adapter
 
 from .migrations import DEFAULT_DB_PATH, ensure_tables
 
 
 class WatchlistRepository:
-    def __init__(self, db_path: Union[str, Path] = DEFAULT_DB_PATH):
-        self.db_path = Path(db_path)
-        ensure_tables(self.db_path)
-
-    def _connect(self) -> sqlite3.Connection:
-        con = sqlite3.connect(str(self.db_path))
-        con.row_factory = sqlite3.Row
-        return con
+    def __init__(self, db_path: Optional[Union[str, Path]] = None):
+        if db_path is None:
+            self.adapter = get_adapter()
+        else:
+            self.adapter = DatabaseAdapter(sqlite_path=db_path)
+        ensure_tables(db_path)
 
     def add(
         self,
@@ -33,13 +38,15 @@ class WatchlistRepository:
     ) -> bool:
         """Add a symbol. Returns False if it was already on the list."""
         symbol = symbol.strip().upper()
-        with self._connect() as con:
-            cur = con.execute(
-                "INSERT OR IGNORE INTO watchlist (symbol, market, display_name, note) "
-                "VALUES (?, ?, ?, ?)",
-                (symbol, market, display_name, note),
-            )
-            return cur.rowcount > 0
+        sql = (
+            "INSERT OR IGNORE INTO watchlist (symbol, market, display_name, note) "
+            "VALUES (?, ?, ?, ?)"
+        )
+        if self.adapter.is_postgres:
+            sql = sql.replace("INSERT OR IGNORE INTO watchlist", "INSERT INTO watchlist")
+            sql += " ON CONFLICT (symbol, market) DO NOTHING"
+        cur_rowcount = self.adapter.execute(sql, (symbol, market, display_name, note))
+        return bool(cur_rowcount)
 
     def remove(self, symbol: str, market: Optional[str] = None) -> bool:
         symbol = symbol.strip().upper()
@@ -48,9 +55,7 @@ class WatchlistRepository:
         if market:
             query += " AND market = ?"
             params.append(market)
-        with self._connect() as con:
-            cur = con.execute(query, params)
-            return cur.rowcount > 0
+        return bool(self.adapter.execute(query, params))
 
     def list(self, market: Optional[str] = None) -> List[dict]:
         query = "SELECT * FROM watchlist"
@@ -59,9 +64,7 @@ class WatchlistRepository:
             query += " WHERE market = ?"
             params.append(market)
         query += " ORDER BY added_at DESC, symbol"
-        with self._connect() as con:
-            rows = con.execute(query, params).fetchall()
-            return [dict(r) for r in rows]
+        return self.adapter.fetchall(query, params)
 
     def has(self, symbol: str, market: Optional[str] = None) -> bool:
         symbol = symbol.strip().upper()
@@ -70,5 +73,4 @@ class WatchlistRepository:
         if market:
             query += " AND market = ?"
             params.append(market)
-        with self._connect() as con:
-            return con.execute(query, params).fetchone() is not None
+        return self.adapter.fetchone(query, params) is not None

@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 
 from .alerts import AlertRepository
 from .demo import DEFAULT_SYMBOLS, DERIV_SYMBOLS, DemoProvider
-from .migrations import DEFAULT_DB_PATH, ensure_tables
+from .migrations import ensure_tables
 from .notifiers import make_notifier
 from .quotes import FinnhubProvider, Quote
 from .watchlist import WatchlistRepository
@@ -30,7 +30,8 @@ from . import heatmap as heatmap_mod
 from . import market_clock
 from . import tradingview
 
-DB_PATH = Path(os.environ.get("SENTIENX_DB_PATH", str(DEFAULT_DB_PATH)))
+# None -> repositories use the central core.db_adapter (SQLite locally,
+# PostgreSQL when DATABASE_URL is set). Tests pass explicit paths.
 
 # TradingView wants "EXCHANGE:SYMBOL"; most liquid US tickers are NASDAQ.
 _TV_EXCHANGE_OVERRIDES = {
@@ -102,7 +103,7 @@ def _freshness_caption(quote: Optional[Quote], label: str) -> str:
 # symbol universe (pure helpers are unit-tested)
 # ---------------------------------------------------------------------------
 
-def symbol_universe(db_path=DB_PATH, cap: int = 40) -> List[Tuple[str, str]]:
+def symbol_universe(db_path=None, cap: int = 40) -> List[Tuple[str, str]]:
     """Watchlist entries first, then defaults; deduped by symbol."""
     seen: set = set()
     out: List[Tuple[str, str]] = []
@@ -177,7 +178,7 @@ def render_sidebar_palette():
     """Command-palette-style symbol search + quick actions (sidebar)."""
     import streamlit as st
 
-    ensure_tables(DB_PATH)
+    ensure_tables()
     provider, label = resolve_provider()
     st.markdown("**🔎 Market Palette**")
 
@@ -196,7 +197,7 @@ def render_sidebar_palette():
         st.session_state["ox_symbol"] = symbol
         col_a, col_b = st.columns(2)
         if col_a.button("＋ Watch", key="ox_palette_watch", use_container_width=True):
-            added = WatchlistRepository(DB_PATH).add(symbol, _market_for(symbol))
+            added = WatchlistRepository().add(symbol, _market_for(symbol))
             st.toast(f"{symbol} {'added to' if added else 'already in'} watchlist")
         if col_b.button("🔔 Alert", key="ox_palette_alert", use_container_width=True):
             st.session_state["ox_alert_symbol"] = symbol
@@ -213,9 +214,9 @@ def render_sidebar_palette():
 def render_watchlist_tab():
     import streamlit as st
 
-    ensure_tables(DB_PATH)
+    ensure_tables()
     provider, label = resolve_provider()
-    repo = WatchlistRepository(DB_PATH)
+    repo = WatchlistRepository()
 
     st.subheader("📋 Watchlist")
     st.caption(
@@ -273,9 +274,9 @@ def render_watchlist_tab():
 def render_alerts_tab():
     import streamlit as st
 
-    ensure_tables(DB_PATH)
+    ensure_tables()
     provider, label = resolve_provider()
-    repo = AlertRepository(DB_PATH, notifier=make_notifier())
+    repo = AlertRepository(notifier=make_notifier())
 
     st.subheader("🔔 Price Alerts")
     st.caption(
@@ -375,7 +376,7 @@ def render_alerts_tab():
 def render_heatmap_tab():
     import streamlit as st
 
-    ensure_tables(DB_PATH)
+    ensure_tables()
     provider, label = resolve_provider()
     st.subheader("🔥 Market Heatmap")
 
@@ -393,7 +394,7 @@ def render_heatmap_tab():
 def render_symbol_detail_tab():
     import streamlit as st
 
-    ensure_tables(DB_PATH)
+    ensure_tables()
     provider, label = resolve_provider()
     st.subheader("📈 Symbol Detail")
 
@@ -453,7 +454,7 @@ def render_symbol_detail_tab():
 
     c1, c2 = st.columns(2)
     if c1.button("＋ Add to watchlist", key="ox_detail_watch", use_container_width=True):
-        added = WatchlistRepository(DB_PATH).add(symbol, market)
+        added = WatchlistRepository().add(symbol, market)
         st.toast(f"{symbol} {'added to' if added else 'already in'} watchlist")
     if c2.button("🔔 Alert at this price", key="ox_detail_alert", use_container_width=True):
         st.session_state["ox_alert_symbol"] = symbol

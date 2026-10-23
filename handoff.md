@@ -62,11 +62,15 @@ cd /home/marvel/Downloads/sentienx
 ### Deployment (Render)
 - Repo: https://github.com/marvel-254/sentienx
 - Config: render.yaml (web service + Postgres)
-- CI: .github/workflows/ci.yml (compile check + import smoke test)
+- DB: PostgreSQL via `DATABASE_URL` (auto-injected by render.yaml); SQLite fallback when unset
+- Adapter: `src/core/db_adapter.py` — used by dashboard, `src/api/server.py`, and all `openstock/` modules
+- CI: .github/workflows/ci.yml (compile check + import smoke test + SQLite tests + Postgres e2e job)
 - Build command: pip install -r requirements.txt
 - Start command: streamlit run src/dashboard/unified_dashboard.py --server.port $PORT --server.headless true
 - Env vars needed: DERIV_APP_ID, DERIV_API_TOKEN, FLASK_SECRET_KEY, DATABASE_URL (auto from render.yaml)
-- Render API key stored in .render_env (gitignored)
+- SECURITY: `.render_env` contained a live Render API key committed to git history — rotate that key
+- Seed/transfer data: `DATABASE_URL=... python scripts/migrate_sqlite_to_postgres.py`
+- Verify migration: `DATABASE_URL=... python scripts/test_postgres_migration.py`
 - Deploy via Render dashboard (connect repo) or `render deploy` CLI
 
 - Pi (claude-opus-4.7 via 9router) is available for delegation: `pi -p --provider 9router --model claude-opus-4.7 "task"`

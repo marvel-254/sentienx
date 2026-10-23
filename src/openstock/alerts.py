@@ -1,15 +1,17 @@
-"""Price alerts (port of OpenStock's alert model + alert.actions).
+"""Price alerts (port of OpenStock's alert model + alert actions).
 
 OpenStock evaluates alerts server-side on an Inngest cron. SENTIENX is
 single-user and local, so evaluation is a plain function the dashboard
 or a background thread can call on a timer (Phase 2).
+
+Uses core.db_adapter: PostgreSQL when DATABASE_URL is set, SQLite
+locally. Tests may pass an explicit db_path to pin SQLite.
 
 Pure rule logic lives in evaluate_rule() so it is trivially testable.
 """
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,11 @@ from typing import List, Optional, Protocol, Union
 
 from .migrations import DEFAULT_DB_PATH, ensure_tables
 from .quotes import Quote
+
+try:
+    from core.db_adapter import DatabaseAdapter, get_adapter
+except ImportError:
+    from core.db_adapter import DatabaseAdapter, get_adapter
 
 VALID_CONDITIONS = ("above", "below")
 VALID_STATUSES = ("active", "paused", "triggered", "cancelled")
@@ -63,17 +70,15 @@ class Alert:
 class AlertRepository:
     def __init__(
         self,
-        db_path: Union[str, Path] = DEFAULT_DB_PATH,
+        db_path: Optional[Union[str, Path]] = None,
         notifier: Optional[Notifier] = None,
     ):
-        self.db_path = Path(db_path)
-        ensure_tables(self.db_path)
+        if db_path is None:
+            self.adapter = get_adapter()
+        else:
+            self.adapter = DatabaseAdapter(sqlite_path=db_path)
+        ensure_tables(db_path)
         self.notifier = notifier or LogNotifier()
-
-    def _connect(self) -> sqlite3.Connection:
-        con = sqlite3.connect(str(self.db_path))
-        con.row_factory = sqlite3.Row
-        return con
 
     def create(
         self,
@@ -85,21 +90,25 @@ class AlertRepository:
     ) -> Alert:
         if condition not in VALID_CONDITIONS:
             raise ValueError("condition must be 'above' or 'below'")
-        with self._connect() as con:
-            cur = con.execute(
-                "INSERT INTO price_alerts (symbol, market, condition, target_price, note) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (symbol.strip().upper(), market, condition, float(target_price), note),
-            )
-            alert_id = cur.lastrowid
-        return self.get(alert_id)  # type: ignore[arg-type]
+        alert_id = self.adapter.insert(
+            "INSERT INTO price_alerts (symbol, market, condition, target_price, note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (symbol.strip().upper(), market, condition, float(target_price), note),
+        )
+        if alert_id is not None:
+            return self.get(alert_id)  # type: ignore[arg-type]
+        # RETURNING id failed unexpectedly: fall back to newest row
+        row = self.adapter.fetchone(
+            "SELECT id FROM price_alerts WHERE symbol = ? ORDER BY id DESC LIMIT 1",
+            (symbol.strip().upper(),),
+        )
+        return self.get(row["id"]) if row else None  # type: ignore
 
     def get(self, alert_id: int) -> Optional[Alert]:
-        with self._connect() as con:
-            row = con.execute(
-                "SELECT * FROM price_alerts WHERE id = ?", (alert_id,)
-            ).fetchone()
-        return Alert(**dict(row)) if row else None
+        row = self.adapter.fetchone(
+            "SELECT * FROM price_alerts WHERE id = ?", (alert_id,)
+        )
+        return Alert(**row) if row else None
 
     def list(self, status: Optional[str] = None) -> List[Alert]:
         query = "SELECT * FROM price_alerts"
@@ -108,33 +117,26 @@ class AlertRepository:
             query += " WHERE status = ?"
             params = (status,)
         query += " ORDER BY created_at DESC"
-        with self._connect() as con:
-            rows = con.execute(query, params).fetchall()
-        return [Alert(**dict(r)) for r in rows]
+        return [Alert(**r) for r in self.adapter.fetchall(query, params)]
 
     def set_status(self, alert_id: int, status: str) -> bool:
         if status not in VALID_STATUSES:
             raise ValueError(f"bad status: {status!r}")
-        with self._connect() as con:
-            cur = con.execute(
-                "UPDATE price_alerts SET status = ? WHERE id = ?", (status, alert_id)
-            )
-            return cur.rowcount > 0
+        return bool(self.adapter.execute(
+            "UPDATE price_alerts SET status = ? WHERE id = ?", (status, alert_id)
+        ))
 
     def delete(self, alert_id: int) -> bool:
-        with self._connect() as con:
-            cur = con.execute("DELETE FROM price_alerts WHERE id = ?", (alert_id,))
-            return cur.rowcount > 0
+        return bool(self.adapter.execute(
+            "DELETE FROM price_alerts WHERE id = ?", (alert_id,)
+        ))
 
     def list_events(self, limit: int = 20) -> List[dict]:
         """Most recent fired-alert events (newest first)."""
-        with self._connect() as con:
-            rows = con.execute(
-                "SELECT * FROM alert_events ORDER BY fired_at DESC, id DESC "
-                "LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return self.adapter.fetchall(
+            "SELECT * FROM alert_events ORDER BY fired_at DESC, id DESC LIMIT ?",
+            (limit,),
+        )
 
     def evaluate(self, provider) -> List[dict]:
         """Check every active alert against live quotes. Returns fired events.
@@ -155,24 +157,23 @@ class AlertRepository:
             if quote.price is None:
                 continue
             if evaluate_rule(quote.price, alert.condition, alert.target_price):
-                with self._connect() as con:
-                    con.execute(
-                        "INSERT INTO alert_events "
-                        "(alert_id, symbol, price, target_price, condition) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (
-                            alert.id,
-                            alert.symbol,
-                            quote.price,
-                            alert.target_price,
-                            alert.condition,
-                        ),
-                    )
-                    con.execute(
-                        "UPDATE price_alerts SET status = 'triggered', "
-                        "triggered_at = ?, last_checked_price = ? WHERE id = ?",
-                        (now, quote.price, alert.id),
-                    )
+                self.adapter.insert(
+                    "INSERT INTO alert_events "
+                    "(alert_id, symbol, price, target_price, condition) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        alert.id,
+                        alert.symbol,
+                        quote.price,
+                        alert.target_price,
+                        alert.condition,
+                    ),
+                )
+                self.adapter.execute(
+                    "UPDATE price_alerts SET status = 'triggered', "
+                    "triggered_at = ?, last_checked_price = ? WHERE id = ?",
+                    (now, quote.price, alert.id),
+                )
                 self.notifier.deliver(alert, quote)
                 fired.append(
                     {
@@ -183,9 +184,8 @@ class AlertRepository:
                     }
                 )
             else:
-                with self._connect() as con:
-                    con.execute(
-                        "UPDATE price_alerts SET last_checked_price = ? WHERE id = ?",
-                        (quote.price, alert.id),
-                    )
+                self.adapter.execute(
+                    "UPDATE price_alerts SET last_checked_price = ? WHERE id = ?",
+                    (quote.price, alert.id),
+                )
         return fired

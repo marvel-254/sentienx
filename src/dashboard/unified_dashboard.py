@@ -15,13 +15,20 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
 import json
-import sqlite3
 import os
 import requests
 from pathlib import Path
 from typing import Dict, List, Tuple
 import threading
 import time
+
+# Central DB adapter (SQLite locally, PostgreSQL when DATABASE_URL is set)
+try:
+    from core.db_adapter import get_adapter
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from core.db_adapter import get_adapter
 
 try:
     import plotly.graph_objects as go
@@ -213,49 +220,28 @@ def login_page():
     """, unsafe_allow_html=True)
 
 # Set up paths
-BASE_DIR = Path(__file__).parent.parent
-DB_PATH = BASE_DIR / "sentienx_trading.db"
+BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_PATH = BASE_DIR / "logs"
-API_URL = "http://localhost:5000"
+API_URL = os.environ.get("SENTIENX_API_URL", "http://localhost:5000")
+
+_db_adapter = get_adapter()
+
 
 # Initialize database
-def initialize_database():
-    """Initialize database with required tables"""
+def ensure_database():
+    """Initialize the database (Postgres on Render, SQLite locally)"""
     try:
         LOGS_PATH.mkdir(parents=True, exist_ok=True)
-        os.chmod(str(LOGS_PATH), 0o755)
-        
-        conn = sqlite3.connect(str(DB_PATH))
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND name='trading_history'
-        """)
-        
-        if not cursor.fetchone():
-            cursor.execute('''
-                CREATE TABLE trading_history (
-                    id INTEGER PRIMARY KEY,
-                    symbol TEXT,
-                    direction TEXT,
-                    entry_price REAL,
-                    exit_price REAL,
-                    volume REAL,
-                    profit_loss REAL,
-                    status TEXT,
-                    timestamp TEXT,
-                    strategy TEXT
-                )
-            ''')
-            conn.commit()
-        
-        conn.close()
-        os.chmod(str(DB_PATH), 0o644)
-    except Exception:
-        pass
+        if not _db_adapter.is_postgres:
+            os.chmod(str(LOGS_PATH), 0o755)
+        return _db_adapter.ensure_schema()
+    except Exception as e:
+        # Loud failure: a broken database must not be swallowed silently
+        st.warning(f"Database init warning: {e}")
+        return []
 
-initialize_database()
+
+ensure_database()
 
 # Session State
 if 'refresh_interval' not in st.session_state:
@@ -286,19 +272,6 @@ def display_footer():
 # DATABASE FUNCTIONS
 # =============================================================================
 
-def get_db_connection():
-    """Get SQLite database connection with error handling"""
-    try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA journal_mode=WAL')
-        return conn
-    except PermissionError:
-        return None
-    except Exception:
-        return None
-
-
 def load_account_data() -> Dict:
     """Load live account data from API or database"""
     # Try to fetch from API first
@@ -306,7 +279,7 @@ def load_account_data() -> Dict:
         response = requests.get(f"{API_URL}/api/account", timeout=2)
         if response.status_code == 200:
             api_data = response.json()
-            
+
             # Try to fetch Deriv balance
             try:
                 deriv_balance = requests.get(f"{API_URL}/api/deriv/balance", timeout=2).json()
@@ -314,29 +287,31 @@ def load_account_data() -> Dict:
                     api_data['balance'] = deriv_balance['balance']
                     api_data['equity'] = deriv_balance['balance']
                     api_data['deriv_connected'] = True
-            except:
+            except Exception:
                 pass
-            
+
             return api_data
     except Exception:
         pass
-    
+
     # Fallback to database
     try:
-        from config import DERIV_CONFIG
-        from deriv_connector import deriv_connector
-        
-        # Try to get Deriv balance
+        # Try to get Deriv balance (module may be absent; never fatal)
         deriv_balance = 1000.0
         deriv_connected = False
+        account_type = 'Demo'
         try:
+            from config import DERIV_CONFIG
+            from deriv_connector import deriv_connector
+
             success, balance, _ = deriv_connector.get_balance()
             if success and balance:
                 deriv_balance = balance
                 deriv_connected = True
-        except:
+            account_type = 'Real' if DERIV_CONFIG.get('environment') == 'real' else 'Demo'
+        except Exception:
             pass
-        
+
         account = {
             'balance': deriv_balance,
             'equity': deriv_balance,
@@ -357,57 +332,49 @@ def load_account_data() -> Dict:
             'max_drawdown': 5.2,
             'connected': deriv_connected,
             'deriv_connected': deriv_connected,
-            'account_type': 'Real' if DERIV_CONFIG.get('environment') == 'real' else 'Demo'
+            'account_type': account_type
         }
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            
-            # Get trade statistics
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losses,
-                    SUM(profit_loss) as total_pnl,
-                    MAX(profit_loss) as best_trade,
-                    MIN(profit_loss) as worst_trade,
-                    AVG(profit_loss) as avg_trade
-                FROM trading_history
-            """)
-            
-            stats = cursor.fetchone()
-            if stats:
-                total = stats['total'] or 0
-                wins = stats['wins'] or 0
-                losses = stats['losses'] or 0
-                
-                account['total_trades'] = total
-                account['winning_trades'] = wins
-                account['losing_trades'] = losses
-                account['win_rate'] = (wins / total * 100) if total > 0 else 0
-                account['total_pnl'] = stats['total_pnl'] or 0
-                account['best_trade'] = stats['best_trade'] or 0
-                account['worst_trade'] = stats['worst_trade'] or 0
-                account['avg_trade'] = stats['avg_trade'] or 0
-                
-                if losses > 0 and wins > 0:
-                    total_wins = sum([row['profit_loss'] for row in cursor.execute(
-                        "SELECT profit_loss FROM trading_history WHERE profit_loss > 0"
-                    )])
-                    total_losses = abs(sum([row['profit_loss'] for row in cursor.execute(
-                        "SELECT profit_loss FROM trading_history WHERE profit_loss < 0"
-                    )]))
-                    account['profit_factor'] = total_wins / total_losses if total_losses > 0 else 0
-            
-            # Get open positions
-            cursor.execute("SELECT COUNT(*) as open FROM trading_history WHERE status='open'")
-            open_pos = cursor.fetchone()
-            account['open_positions'] = open_pos['open'] or 0
-            
-            conn.close()
-        
+
+        # Get trade statistics from database
+        stats = _db_adapter.fetchone("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losses,
+                SUM(profit_loss) as total_pnl,
+                SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as total_wins,
+                ABS(SUM(CASE WHEN profit_loss < 0 THEN profit_loss ELSE 0 END)) as total_losses,
+                MAX(profit_loss) as best_trade,
+                MIN(profit_loss) as worst_trade,
+                AVG(profit_loss) as avg_trade
+            FROM trading_history
+        """)
+
+        if stats:
+            total = stats['total'] or 0
+            wins = stats['wins'] or 0
+            losses = stats['losses'] or 0
+            total_wins = stats['total_wins'] or 0
+            total_losses = stats['total_losses'] or 0
+
+            account['total_trades'] = total
+            account['winning_trades'] = wins
+            account['losing_trades'] = losses
+            account['win_rate'] = (wins / total * 100) if total > 0 else 0
+            account['total_pnl'] = stats['total_pnl'] or 0
+            account['best_trade'] = stats['best_trade'] or 0
+            account['worst_trade'] = stats['worst_trade'] or 0
+            account['avg_trade'] = stats['avg_trade'] or 0
+            if total_losses > 0 and total_wins > 0:
+                account['profit_factor'] = total_wins / total_losses
+
+        open_row = _db_adapter.fetchone(
+            "SELECT COUNT(*) as open FROM trading_history WHERE status = ?",
+            ('open',)
+        )
+        if open_row:
+            account['open_positions'] = open_row['open'] or 0
+
         return account
     except Exception as e:
         st.warning(f"Could not load account data: {e}")
@@ -450,28 +417,26 @@ def load_trades_data(limit: int = 100) -> pd.DataFrame:
                 return df
     except Exception:
         pass
-    
+
     # Fallback to database
     try:
-        conn = get_db_connection()
-        if conn:
-            query = """
-                SELECT 
-                    symbol, direction, entry_price, exit_price, 
-                    volume, profit_loss, status, timestamp, strategy
-                FROM trading_history 
-                ORDER BY timestamp DESC 
-                LIMIT ?
+        df = _db_adapter.read_df(
             """
-            df = pd.read_sql_query(query, conn, params=(limit,))
-            conn.close()
-            
-            if not df.empty:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df['profit_loss'] = pd.to_numeric(df['profit_loss'], errors='coerce')
-            
-            return df
-        return pd.DataFrame()
+            SELECT
+                symbol, direction, entry_price, exit_price,
+                volume, profit_loss, status, timestamp, strategy
+            FROM trading_history
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['profit_loss'] = pd.to_numeric(df['profit_loss'], errors='coerce')
+
+        return df
     except Exception as e:
         st.warning(f"Error loading trades: {e}")
         return pd.DataFrame()
@@ -480,29 +445,23 @@ def load_trades_data(limit: int = 100) -> pd.DataFrame:
 def load_signals_data(limit: int = 50) -> pd.DataFrame:
     """Load recent trading signals"""
     try:
-        conn = get_db_connection()
-        if conn:
-            try:
-                query = """
-                    SELECT 
-                        symbol, signal, confidence, strength, 
-                        indicators, timestamp, strategy
-                    FROM signals_history 
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                """
-                df = pd.read_sql_query(query, conn, params=(limit,))
-                conn.close()
-                
-                if not df.empty:
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df['confidence'] = pd.to_numeric(df['confidence'], errors='coerce')
-                
-                return df
-            except Exception:
-                conn.close()
-                return pd.DataFrame()
-        return pd.DataFrame()
+        df = _db_adapter.read_df(
+            """
+            SELECT
+                symbol, signal, confidence, strength,
+                indicators, timestamp, strategy
+            FROM signals_history
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['confidence'] = pd.to_numeric(df['confidence'], errors='coerce')
+
+        return df
     except Exception as e:
         st.warning(f"Error loading signals: {e}")
         return pd.DataFrame()
@@ -522,30 +481,25 @@ def load_pnl_data() -> pd.DataFrame:
                     return df
     except Exception:
         pass
-    
+
     # Fallback to database
     try:
-        conn = get_db_connection()
-        if conn:
-            query = """
-                SELECT 
-                    DATE(timestamp) as date,
-                    SUM(profit_loss) as daily_pnl,
-                    COUNT(*) as trades,
-                    SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins
-                FROM trading_history 
-                GROUP BY DATE(timestamp)
-                ORDER BY date ASC
-            """
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-            
-            if not df.empty:
-                df['date'] = pd.to_datetime(df['date'])
-                df['cumulative_pnl'] = df['daily_pnl'].cumsum()
-            
-            return df
-        return pd.DataFrame()
+        df = _db_adapter.read_df(f"""
+            SELECT
+                {_db_adapter.date_expr('timestamp')} as date,
+                SUM(profit_loss) as daily_pnl,
+                COUNT(*) as trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins
+            FROM trading_history
+            GROUP BY {_db_adapter.date_expr('timestamp')}
+            ORDER BY date ASC
+        """)
+
+        if not df.empty:
+            df['date'] = pd.to_datetime(df['date'])
+            df['cumulative_pnl'] = df['daily_pnl'].cumsum()
+
+        return df
     except Exception as e:
         st.warning(f"Error loading P&L data: {e}")
         return pd.DataFrame()

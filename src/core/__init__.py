@@ -5,7 +5,11 @@ Base classes for forecasters and agents with unified data processing
 
 import os
 import pickle
-import dill
+try:
+    import dill
+except ImportError:
+    # Optional dependency, only required for model save/load features
+    dill = None
 import json
 import datetime
 from abc import ABC, abstractmethod
@@ -106,6 +110,8 @@ class DataProcessor(ABC):
     
     def saveProcessor(self, path):
         """Save data processor configuration"""
+        if dill is None:
+            raise RuntimeError("dill is not installed - install it to save processors")
         config = {
             'tickers': self.tickers,
             'features': self.features,
@@ -219,11 +225,14 @@ class ForecasterBase(ABC):
         """
         if not os.path.exists(savePath):
             os.makedirs(savePath)
-            
+
+        if dill is None:
+            raise RuntimeError("dill is not installed - install it to save models")
+
         modelPath = os.path.join(savePath, name)
         if not os.path.exists(modelPath):
             os.makedirs(modelPath)
-        
+
         # Save model
         if hasattr(self.model, 'save'):
             self.model.save(os.path.join(modelPath, "model.h5"))
@@ -262,6 +271,8 @@ class ForecasterBase(ABC):
         modelPath = os.path.join(savePath, name)
         
         # Load data processor
+        if dill is None:
+            raise RuntimeError("dill is not installed - install it to load models")
         with open(os.path.join(modelPath, "data_processor.dill"), 'rb') as f:
             self.dataProcessor = dill.load(f)
         
@@ -398,7 +409,10 @@ class AgentBase(ABC):
         """
         if not os.path.exists(savePath):
             os.makedirs(savePath)
-            
+
+        if dill is None:
+            raise RuntimeError("dill is not installed - install it to save agents")
+
         agentPath = os.path.join(savePath, name)
         if not os.path.exists(agentPath):
             os.makedirs(agentPath)

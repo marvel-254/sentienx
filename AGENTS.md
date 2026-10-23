@@ -8,13 +8,21 @@
 - **Status:** Half-finished prototype being revived
 
 ## Stack
-- **UI:** Streamlit (Python), 9 tabs, dark theme
+- **UI:** Streamlit (Python), 13 tabs, dark theme
 - **API:** Flask on port 8080
-- **Data:** SQLite (`sentienx_trading.db`)
+- **Data:** SQLite (`src/sentienx_trading.db`) locally, **PostgreSQL via `DATABASE_URL`** (Render/Neon) in deployment
 - **Broker:** Deriv WebSocket (`wss://ws.derivws.com/websockets/v3`)
-- **Charts:** Streamlit native (plotly unavailable, matplotlib not installed)
+- **Charts:** Streamlit native + altair (plotly optional, matplotlib not installed)
 - **ML:** Custom neural network, breakout analyzer in `src/ml/`
 - **Risk:** VaR engine, portfolio allocator, stress tester in `src/risk_specialist/`
+
+## Database
+- Canonical adapter: `src/core/db_adapter.py` (`get_adapter()` singleton)
+- Resolution: `DATABASE_URL` env → Postgres; else `SENTIENX_DB_PATH` or `src/sentienx_trading.db` (SQLite)
+- On Render, `render.yaml` injects `DATABASE_URL` from a free Postgres instance; local dev stays SQLite
+- Core tables: `trading_history`, `signals_history`; OpenStock tables: `watchlist`, `price_alerts`, `alert_events`
+- SQLite `?` placeholders are auto-translated to `%s` for psycopg2; don't put literal `?` in queries
+- Data transfer & verification: `scripts/migrate_sqlite_to_postgres.py`, `scripts/test_postgres_migration.py`
 
 ## Conventions
 - Canonical code is in `src/` — top-level duplicates are legacy, do not edit them
