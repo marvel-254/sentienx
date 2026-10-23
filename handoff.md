@@ -59,6 +59,15 @@ cd /home/marvel/Downloads/sentienx
 .venv/bin/python src/api_server.py  # or src/api/...
 ```
 
-### Agent Handoffs
+### Deployment (Render)
+- Repo: https://github.com/marvel-254/sentienx
+- Config: render.yaml (web service + Postgres)
+- CI: .github/workflows/ci.yml (compile check + import smoke test)
+- Build command: pip install -r requirements.txt
+- Start command: streamlit run src/dashboard/unified_dashboard.py --server.port $PORT --server.headless true
+- Env vars needed: DERIV_APP_ID, DERIV_API_TOKEN, FLASK_SECRET_KEY, DATABASE_URL (auto from render.yaml)
+- Render API key stored in .render_env (gitignored)
+- Deploy via Render dashboard (connect repo) or `render deploy` CLI
+
 - Pi (claude-opus-4.7 via 9router) is available for delegation: `pi -p --provider 9router --model claude-opus-4.7 "task"`
 - Terryan (this agent) handles orchestration, verification, and user communication
