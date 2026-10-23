@@ -15,8 +15,8 @@ from typing import List, Optional, Union
 
 try:
     from core.db_adapter import get_adapter
-except ImportError:  # pragma: no cover - when src/ is the sys.path root
-    from core.db_adapter import get_adapter
+except ImportError:  # openstock imported without src/ on sys.path
+    from .db_adapter import get_adapter  # shim bootstraps src/ and re-exports
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "sentienx_trading.db"
 

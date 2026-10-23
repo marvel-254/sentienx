@@ -16,7 +16,7 @@ from typing import List, Optional, Union
 try:
     from core.db_adapter import DatabaseAdapter, get_adapter
 except ImportError:
-    from core.db_adapter import DatabaseAdapter, get_adapter
+    from .db_adapter import DatabaseAdapter, get_adapter
 
 from .migrations import DEFAULT_DB_PATH, ensure_tables
 

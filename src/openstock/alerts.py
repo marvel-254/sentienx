@@ -23,7 +23,7 @@ from .quotes import Quote
 try:
     from core.db_adapter import DatabaseAdapter, get_adapter
 except ImportError:
-    from core.db_adapter import DatabaseAdapter, get_adapter
+    from .db_adapter import DatabaseAdapter, get_adapter
 
 VALID_CONDITIONS = ("above", "below")
 VALID_STATUSES = ("active", "paused", "triggered", "cancelled")
