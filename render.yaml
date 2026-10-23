@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: sentienx-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run src/dashboard/unified_dashboard.py --server.port $PORT --server.headless true --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.14.0"
+      - key: DERIV_ENV
+        value: demo
+      - key: DERIV_APP_ID
+        sync: false
+      - key: DERIV_API_TOKEN
+        sync: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentienx-db
+          property: connectionString
+
+databases:
+  - name: sentienx-db
+    plan: free
+    postgresMajorVersion: 16

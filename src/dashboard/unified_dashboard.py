@@ -1025,7 +1025,7 @@ def tab_economic_calendar():
         return [colors.get(val, '') for val in val]
     
     styled_df = cal_df.style.apply(lambda x: color_importance(x) if x.name == 'importance' else [''] * len(x), axis=0)
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    st.dataframe(styled_df, use_container_width=True)
 
 
 def tab_market_news():
