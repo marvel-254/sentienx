@@ -37,6 +37,20 @@ try:
 except ImportError:
     HAS_BREAKOUT = False
 
+# OpenStock-derived market pages (watchlist / alerts / heatmap / detail)
+try:
+    from openstock import streamlit_pages as osp
+    HAS_OPENSTOCK = True
+except ImportError:
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from openstock import streamlit_pages as osp
+        HAS_OPENSTOCK = True
+    except Exception:
+        osp = None
+        HAS_OPENSTOCK = False
+
 # Page Configuration
 st.set_page_config(
     page_title="SENTIENX",
@@ -1186,6 +1200,40 @@ Risk Metrics:
 # MAIN APPLICATION
 # =============================================================================
 
+# --- OpenStock-derived tabs (added 2026-10-23, dashboard owner: Agora agent) ---
+
+def tab_watchlist():
+    """OpenStock-derived watchlist tab"""
+    if HAS_OPENSTOCK:
+        osp.render_watchlist_tab()
+    else:
+        st.info("OpenStock market module unavailable (import failed).")
+
+
+def tab_price_alerts():
+    """OpenStock-derived price alerts tab"""
+    if HAS_OPENSTOCK:
+        osp.render_alerts_tab()
+    else:
+        st.info("OpenStock market module unavailable (import failed).")
+
+
+def tab_heatmap():
+    """OpenStock-derived market heatmap tab"""
+    if HAS_OPENSTOCK:
+        osp.render_heatmap_tab()
+    else:
+        st.info("OpenStock market module unavailable (import failed).")
+
+
+def tab_symbol_detail():
+    """OpenStock-derived symbol detail tab"""
+    if HAS_OPENSTOCK:
+        osp.render_symbol_detail_tab()
+    else:
+        st.info("OpenStock market module unavailable (import failed).")
+
+
 def main():
     """Main application"""
     
@@ -1202,7 +1250,12 @@ def main():
     # Sidebar Configuration
     with st.sidebar:
         st.header("Settings")
-        
+
+        # OpenStock market palette (symbol search + quick actions)
+        if HAS_OPENSTOCK:
+            osp.render_sidebar_palette()
+            st.divider()
+
         if st.button("Logout", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
@@ -1296,7 +1349,11 @@ def main():
         "Market News",
         "AI Assistant",
         "API Docs",
-        "Download"
+        "Download",
+        "Watchlist",
+        "Price Alerts",
+        "Heatmap",
+        "Symbol Detail"
     ])
     
     with tabs[0]:
@@ -1325,6 +1382,18 @@ def main():
     
     with tabs[8]:
         tab_download()
+    
+    with tabs[9]:
+        tab_watchlist()
+    
+    with tabs[10]:
+        tab_price_alerts()
+    
+    with tabs[11]:
+        tab_heatmap()
+    
+    with tabs[12]:
+        tab_symbol_detail()
     
     # Footer
     display_footer()

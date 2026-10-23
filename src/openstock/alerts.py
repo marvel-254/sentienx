@@ -126,6 +126,16 @@ class AlertRepository:
             cur = con.execute("DELETE FROM price_alerts WHERE id = ?", (alert_id,))
             return cur.rowcount > 0
 
+    def list_events(self, limit: int = 20) -> List[dict]:
+        """Most recent fired-alert events (newest first)."""
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM alert_events ORDER BY fired_at DESC, id DESC "
+                "LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def evaluate(self, provider) -> List[dict]:
         """Check every active alert against live quotes. Returns fired events.
 

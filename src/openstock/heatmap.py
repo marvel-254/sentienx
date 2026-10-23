@@ -40,12 +40,16 @@ def build_heatmap_rows(
 
 
 def render_streamlit(rows: List[dict], height: int = 480) -> bool:
-    """Render the heatmap inside a Streamlit app. Returns True on success."""
+    """Render the heatmap inside a Streamlit app. Returns True on success.
+
+    Falls back to a dependency-free HTML/CSS grid when plotly is missing
+    (the SENTIENX venv has neither plotly nor altair by policy).
+    """
     import streamlit as st
 
     if not HAS_PLOTLY:
-        st.warning("plotly is not installed in this venv; heatmap unavailable.")
-        return False
+        render_streamlit_html(rows)
+        return True
     if not rows:
         st.info("No quote data available for the heatmap yet.")
         return False
@@ -68,3 +72,55 @@ def render_streamlit(rows: List[dict], height: int = 480) -> bool:
     )
     st.plotly_chart(fig, use_container_width=True)
     return True
+
+
+# ---------------------------------------------------------------------------
+# dependency-free HTML/CSS fallback (no plotly, no altair needed)
+# ---------------------------------------------------------------------------
+
+NEUTRAL_RGB = (31, 41, 55)    # #1f2937
+UP_RGB = (34, 197, 94)        # #22c55e
+DOWN_RGB = (239, 68, 68)      # #ef4444
+
+
+def _lerp_color(a: tuple, b: tuple, t: float) -> str:
+    channel = lambda i: int(round(a[i] + (b[i] - a[i]) * t))  # noqa: E731
+    return "#{:02x}{:02x}{:02x}".format(*(channel(i) for i in range(3)))
+
+
+def heat_color(change_percent: float, max_abs: float = 3.0) -> str:
+    """Green->neutral->red hex for a % change, clamped to +/- max_abs."""
+    t = max(-1.0, min(1.0, (change_percent or 0.0) / max_abs))
+    if t >= 0:
+        return _lerp_color(NEUTRAL_RGB, UP_RGB, t)
+    return _lerp_color(NEUTRAL_RGB, DOWN_RGB, -t)
+
+
+def render_streamlit_html(rows: List[dict]) -> None:
+    """CSS-grid heatmap of tiles colored by % change (no chart libs)."""
+    import html as _html
+    import streamlit as st
+
+    if not rows:
+        st.info("No quote data available for the heatmap yet.")
+        return
+    tiles = []
+    for r in sorted(rows, key=lambda item: -abs(item["change_percent"])):
+        color = heat_color(r["change_percent"])
+        pct = r["change_percent"]
+        sign = "+" if pct >= 0 else ""
+        tiles.append(
+            f'<div style="background:{color};color:#0b1020;'
+            f'border-radius:10px;padding:10px 12px;min-height:64px">'
+            f'<div style="font-weight:700;font-size:0.95rem">'
+            f'{_html.escape(str(r["symbol"]))}</div>'
+            f'<div style="font-size:0.8rem;opacity:.85">{r["price"]:g}</div>'
+            f'<div style="font-size:0.85rem;font-weight:700">'
+            f'{sign}{pct:.2f}%</div></div>'
+        )
+    grid = (
+        '<div style="display:grid;'
+        'grid-template-columns:repeat(auto-fill,minmax(130px,1fr));'
+        f'gap:8px">{"".join(tiles)}</div>'
+    )
+    st.markdown(grid, unsafe_allow_html=True)
