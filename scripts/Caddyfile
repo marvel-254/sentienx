@@ -1,0 +1,8 @@
+:8000 {
+    reverse_proxy localhost:8080
+}
+
+:9443 {
+    reverse_proxy localhost:8080
+    tls certs/cert.pem certs/key.pem
+}

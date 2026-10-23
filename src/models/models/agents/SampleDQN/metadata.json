@@ -1,0 +1,13 @@
+{
+  "name": "SampleDQN",
+  "type": "agent",
+  "class_name": "DQNAgent",
+  "saved_at": "2024-11-20T15:45:00",
+  "metadata": {
+    "size": 15000000,
+    "performance": {
+      "final_loss": 0.0456,
+      "total_reward": 1250
+    }
+  }
+}

@@ -1,0 +1,16 @@
+[client]
+showErrorDetails = false
+toolbarMode = "viewer"
+
+[server]
+headless = true
+port = 8501
+address = "0.0.0.0"
+enableXsrfProtection = false
+
+[logger]
+level = "info"
+
+[browser]
+serverAddress = "0.0.0.0"
+gatherUsageStats = false

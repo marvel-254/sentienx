@@ -1,0 +1,13 @@
+{
+  "name": "SampleLSTM",
+  "type": "forecaster",
+  "class_name": "BasicLSTM",
+  "saved_at": "2024-11-20T15:30:00",
+  "metadata": {
+    "size": 25000000,
+    "performance": {
+      "final_loss": 0.0234,
+      "validation_loss": 0.0256
+    }
+  }
+}
