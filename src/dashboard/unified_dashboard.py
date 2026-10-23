@@ -141,44 +141,75 @@ def check_authentication():
         st.session_state.authenticated = False
 
 def login_page():
-    """Display login page"""
+    """Professional branded auth screen (the app's landing page)."""
+    # Hide sidebar/header chrome and paint the hero gradient until login.
     st.markdown("""
-        <div style='display: flex; justify-content: center; align-items: center; min-height: 100vh;'>
-            <div class='login-container'>
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stAppViewContainer"] { background:
+            radial-gradient(1100px 560px at 72% -12%, rgba(34,197,94,0.09), transparent 60%),
+            radial-gradient(900px 520px at 8% 112%, rgba(59,130,246,0.11), transparent 55%),
+            #0a0e27 !important; }
+        .sx-auth-wrap { min-height: 90vh; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; }
+        .sx-auth-card { width: 100%; max-width: 400px; background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.09); border-radius: 18px;
+            padding: 38px 36px 24px; backdrop-filter: blur(8px);
+            box-shadow: 0 24px 60px rgba(0,0,0,0.45); }
+        .sx-auth-card input { background: rgba(255,255,255,0.05) !important;
+            border: 1px solid rgba(255,255,255,0.12) !important; border-radius: 10px !important;
+            color: #e2e8f0 !important; }
+        .sx-auth-card input:focus { border-color: #22c55e !important;
+            box-shadow: 0 0 0 1px #22c55e !important; }
+        .sx-auth-card button { border: none !important; border-radius: 10px !important;
+            font-weight: 700; letter-spacing: 0.14em; color: #06130a !important;
+            background: linear-gradient(90deg, #22c55e, #4ade80) !important;
+            transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .sx-auth-card button:hover { transform: translateY(-1px);
+            box-shadow: 0 8px 22px rgba(34,197,94,0.35); }
+        .sx-brand { font-size: 2.1rem; font-weight: 800; letter-spacing: 0.35em;
+            text-align: center; margin-top: 4px;
+            background: linear-gradient(90deg, #e2e8f0, #22c55e 55%, #3b82f6);
+            -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .sx-tagline { text-align: center; color: #94a3b8; font-size: 0.8rem;
+            margin: 8px 0 26px; letter-spacing: 0.14em; }
+        .sx-label { color: #cbd5e1; font-size: 0.74rem; text-transform: uppercase;
+            letter-spacing: 0.14em; margin: 12px 2px 2px; }
+        .sx-features { display: flex; gap: 24px; justify-content: center; margin-top: 24px;
+            color: #64748b; font-size: 0.78rem; flex-wrap: wrap; }
+        .sx-auth-footer { text-align: center; color: #475569; font-size: 0.72rem; margin-top: 30px; }
+        </style>
     """, unsafe_allow_html=True)
-    
-    st.markdown("<div class='login-title'>SENTIENX</div>", unsafe_allow_html=True)
-    st.markdown("<div class='login-subtitle'>AI-Powered Forex Trading System</div>", unsafe_allow_html=True)
-    st.markdown("<div class='login-divider'></div>", unsafe_allow_html=True)
-    
-    st.markdown("<label class='login-input-label'>Username</label>", unsafe_allow_html=True)
-    username = st.text_input("Username", key="login_username", label_visibility="collapsed")
-    
-    st.markdown("<label class='login-input-label'>Password</label>", unsafe_allow_html=True)
-    password = st.text_input("Password", type="password", key="login_password", label_visibility="collapsed")
-    
-    if st.button("LOGIN", use_container_width=True, key="login_btn"):
-        if username == "marvel" and password == "olivertwist":
+
+    st.markdown("<div class='sx-auth-wrap'><div class='sx-auth-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='sx-brand'>SENTIENX</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sx-tagline'>AI-POWERED TRADING COMMAND CENTER</div>", unsafe_allow_html=True)
+
+    with st.form("sx_login_form"):
+        st.markdown("<div class='sx-label'>Username</div>", unsafe_allow_html=True)
+        username = st.text_input("Username", key="login_username", label_visibility="collapsed")
+        st.markdown("<div class='sx-label'>Password</div>", unsafe_allow_html=True)
+        password = st.text_input("Password", type="password", key="login_password", label_visibility="collapsed")
+        submitted = st.form_submit_button("ENTER DASHBOARD", use_container_width=True)
+
+    if submitted:
+        expected_user = os.environ.get("SENTIENX_USER", "marvel")
+        expected_pass = os.environ.get("SENTIENX_PASS", "olivertwist")
+        if username == expected_user and password == expected_pass:
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("\u274c Invalid credentials. Use: marvel / olivertwist")
-    
+            st.error("\u274c Invalid username or password.")
+
     st.markdown("""
-        <div class='login-demo-info'>
-            <strong>Demo Account:</strong><br>
-            Username: <code>marvel</code><br>
-            Password: <code>olivertwist</code>
+        <div class='sx-features'>
+            <span>📈 Live market data</span>
+            <span>🔔 Price alerts</span>
+            <span>🔥 Market heatmap</span>
         </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-        <div class='login-footer'>
-            <p>SENTIENX Trading System v1.0</p>
-            <p>2025 All Rights Reserved</p>
-        </div>
-            </div>
-        </div>
+        <div class='sx-auth-footer'>SENTIENX Trading System · © 2025 · All Rights Reserved</div>
+        </div></div>
     """, unsafe_allow_html=True)
 
 # Set up paths
