@@ -8,6 +8,13 @@ port = 8501
 address = "0.0.0.0"
 enableXsrfProtection = false
 
+[theme]
+base = "dark"
+primaryColor = "#22c55e"
+backgroundColor = "#05060a"
+secondaryBackgroundColor = "#0e1223"
+textColor = "#F8FAFC"
+
 [logger]
 level = "info"
 

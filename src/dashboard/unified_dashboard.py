@@ -13,7 +13,7 @@ SENTIENX Unified Trading Dashboard
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 import json
 import os
 import requests
@@ -29,6 +29,14 @@ except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from core.db_adapter import get_adapter
+
+# Deriv real-time feed (new dev-portal API: REST + OTP WebSocket)
+try:
+    import deriv_feed
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import deriv_feed
 
 try:
     import plotly.graph_objects as go
@@ -66,65 +74,104 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dark Theme Styling with Reduced Animations
+# Global chrome — one token system, shared with the login screen:
+# bg #05060a · surface #0e1223 · border #334155 · fg #F8FAFC
+# muted #94a3b8 · accent #22c55e · danger #ef4444 · amber #f59e0b
 st.markdown("""
     <style>
-    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    
+
     * { margin: 0; padding: 0; }
     html, body, [data-testid="stAppViewContainer"] {
-        background-color: #0a0e27 !important;
-        color: #e0e0e0 !important;
+        background-color: #05060a !important;
+        color: #F8FAFC !important;
         cursor: default;
     }
+    [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] {
-        background-color: #1a1f3a !important;
+        background-color: #0e1223 !important;
+        border-right: 1px solid #334155;
     }
     .block-container {
-        padding: 20px;
-        background-color: #0a0e27 !important;
-        animation: slideIn 0.3s ease-out;
+        padding: 24px 20px;
+        background: transparent !important;
+        animation: fadeIn 0.2s ease-out;
     }
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #1a1f3a;
-        border-bottom: 2px solid #2d3561;
+        background-color: transparent;
+        border-bottom: 1px solid #1e2536;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1a1f3a;
-        color: #a0a0a0;
-        border-radius: 5px 5px 0 0;
-        transition: all 0.2s ease;
+        background-color: transparent;
+        color: #94a3b8;
+        font-size: 0.86rem;
+        font-weight: 500;
+        border-radius: 0;
+        padding: 8px 12px;
+        border-bottom: 2px solid transparent;
+        transition: color 0.15s ease, border-color 0.15s ease;
     }
-    .stTabs [data-baseweb="tab"]:hover {
-        color: #64c8ff;
-    }
+    .stTabs [data-baseweb="tab"]:hover { color: #e2e8f0; }
     .stTabs [aria-selected="true"] {
-        background-color: #2d3561 !important;
-        color: #00d4ff !important;
+        color: #F8FAFC !important;
+        border-bottom: 2px solid #22c55e !important;
     }
-    h1 { color: #00d4ff; margin-bottom: 20px; font-weight: bold; }
-    h2 { color: #00d4ff; margin-top: 20px; }
-    h3 { color: #a0a0a0; }
-    .stMetric { background-color: #1a1f3a; padding: 15px; border-radius: 8px; border-left: 3px solid #00d4ff; transition: all 0.2s ease; }
-    .stMetric:hover { transform: translateX(3px); box-shadow: 0 2px 8px rgba(0, 212, 255, 0.15); }
-    .stDataFrame { background-color: #1a1f3a !important; }
-    [data-testid="stDataFrameContainer"] { background-color: #1a1f3a !important; }
-    .stSelectbox, .stSlider, .stTextInput { background-color: #1a1f3a; transition: all 0.2s ease; }
-    .stSelectbox:hover, .stSlider:hover, .stTextInput:hover { box-shadow: 0 0 8px rgba(0, 212, 255, 0.15); }
-    button { background-color: #2d3561 !important; color: #00d4ff !important; border: 1px solid #00d4ff !important; font-weight: bold; transition: all 0.2s ease; }
-    button:hover { background-color: #00d4ff !important; color: #0a0e27 !important; box-shadow: 0 0 12px rgba(0, 212, 255, 0.3); }
-
-    button:active { transform: scale(0.98); }
-    a { color: #00d4ff !important; transition: all 0.2s ease; }
-    a:hover { color: #64c8ff; }
-    .success { color: #00d700; }
-    .danger { color: #ff4444; }
-    .warning { color: #ffaa00; }
-    .section-header { color: #00d4ff; font-size: 20px; font-weight: bold; margin: 15px 0 10px 0; border-bottom: 2px solid #2d3561; padding-bottom: 10px; }
-    .footer { background-color: #1a1f3a; border-top: 2px solid #2d3561; padding: 20px; margin-top: 40px; text-align: center; color: #a0a0a0; font-size: 12px; }
+    h1 { color: #F8FAFC; margin-bottom: 20px; font-weight: 700; letter-spacing: 0.06em; }
+    h2 { color: #F8FAFC; margin-top: 20px; font-weight: 600; }
+    h3 { color: #cbd5e1; }
+    .stMetric {
+        background-color: #0e1223; padding: 14px; border-radius: 4px;
+        border: 1px solid #334155; transition: border-color 0.15s ease;
+    }
+    .stMetric:hover { border-color: #22c55e; }
+    .stDataFrame { background-color: #0e1223 !important; }
+    [data-testid="stDataFrameContainer"] { background-color: #0e1223 !important; }
+    [data-testid="stAlert"] {
+        background-color: #0e1223;
+        border: 1px solid #334155;
+        border-radius: 4px;
+    }
+    button {
+        background-color: #0e1223 !important;
+        color: #F8FAFC !important;
+        border: 1px solid #334155 !important;
+        border-radius: 4px;
+        font-weight: 500;
+        transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+    button:hover {
+        background-color: #182036 !important;
+        border-color: #22c55e !important;
+        color: #F8FAFC !important;
+        box-shadow: none !important;
+    }
+    button:active { transform: scale(0.99); }
+    button:focus-visible { outline: 2px solid #F8FAFC; outline-offset: 2px; }
+    a { color: #4ade80 !important; transition: color 0.15s ease; }
+    a:hover { color: #86efac !important; }
+    .success { color: #4ade80; }
+    .danger { color: #f87171; }
+    .warning { color: #fbbf24; }
+    .section-header {
+        color: #F8FAFC; font-size: 1.15rem; font-weight: 600;
+        margin: 15px 0 10px 0; border-bottom: 1px solid #1e2536; padding-bottom: 10px;
+    }
+    .footer {
+        background-color: #0e1223; border-top: 1px solid #1e2536; border-radius: 4px;
+        padding: 18px; margin-top: 40px; text-align: center;
+        color: #94a3b8; font-size: 12px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        * { animation: none !important; transition: none !important; }
+    }
     </style>
     """, unsafe_allow_html=True)
+
+# Landing/auth imagery (Pexels, free-to-use license) — hotlinked CDN copies
+HERO_IMG_URL = ("https://images.pexels.com/photos/29611783/pexels-photo-29611783.jpeg"
+                "?auto=compress&cs=tinysrgb&w=1920")
+LOGIN_IMG_URL = ("https://images.pexels.com/photos/10653886/pexels-photo-10653886.jpeg"
+                 "?auto=compress&cs=tinysrgb&w=1920")
 
 # Authentication
 def check_authentication():
@@ -133,15 +180,16 @@ def check_authentication():
         st.session_state.authenticated = False
 
 def login_page():
-    """Branded auth screen — terminal-style instrument panel, not a SaaS card."""
-    # Hide sidebar/header chrome and paint the console background until login.
+    """Branded auth screen — trading-desk imagery behind a terminal card."""
+    # Hide sidebar/header chrome and paint the trading-desk backdrop until login.
     st.markdown("""
         <style>
         [data-testid="stSidebar"] { display: none; }
         [data-testid="stHeader"] { background: transparent; }
-        [data-testid="stAppViewContainer"] { background:
-            radial-gradient(900px 480px at 85% -10%, rgba(34,197,94,0.05), transparent 60%),
-            #05060a !important; }
+        [data-testid="stAppViewContainer"] {
+            background:
+                linear-gradient(180deg, rgba(5,6,10,0.88) 0%, rgba(5,6,10,0.96) 55%, rgba(5,6,10,1) 100%),
+                url('__BG__') center/cover no-repeat fixed !important; }
         [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] * {
             font-family: system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
             font-feature-settings: 'tnum' 1; }
@@ -152,17 +200,6 @@ def login_page():
         .sx-console-line { color: #94a3b8; font-size: 0.92rem; font-weight: 300;
             margin: 14px auto 0; line-height: 1.6; max-width: 40ch; }
         .sx-console-line strong { color: #e2e8f0; font-weight: 600; }
-        .sx-status { display: flex; justify-content: center; gap: 28px;
-            margin: 26px auto 0; padding: 14px 0;
-            border-top: 1px solid #1e2536; border-bottom: 1px solid #1e2536;
-            max-width: 560px; }
-        .sx-stat { display: flex; flex-direction: column; gap: 4px; }
-        .sx-k { color: #64748b; font-size: 0.68rem; letter-spacing: 0.10em; }
-        .sx-v { color: #cbd5e1; font-size: 0.85rem; font-weight: 500; }
-        .sx-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
-            display: inline-block; margin-right: 7px;
-            box-shadow: 0 0 6px rgba(34,197,94,0.8); vertical-align: middle; }
-        .sx-dot.amber { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.8); }
         [data-testid="stForm"] { background: #0e1223; border: 1px solid #334155;
             border-radius: 4px; padding: 40px 38px 30px !important;
             box-shadow: 0 30px 70px rgba(0,0,0,0.5);
@@ -211,22 +248,12 @@ def login_page():
             margin: 30px auto 6vh; line-height: 1.5; max-width: 48ch; }
         @media (max-width: 1080px) {
             .sx-band { margin-top: 6vh; }
-            .sx-status { gap: 18px; flex-wrap: wrap; }
         }
         @media (max-width: 520px) {
             .sx-wordmark { font-size: 1.9rem; white-space: nowrap; }
         }
         </style>
-    """, unsafe_allow_html=True)
-
-    # Live system readout for the header band — real values, not decoration.
-    env_mode = os.environ.get("DERIV_ENV", "demo")
-    try:
-        _db_adapter.connect()
-        db_state = db_label = "PostgreSQL" if getattr(_db_adapter, "_is_postgres", False) else "SQLite"
-    except Exception:
-        db_state, db_label = "offline", "storage"
-    mode_color = "sx-dot amber" if env_mode != "real" else "sx-dot"
+    """.replace("__BG__", LOGIN_IMG_URL), unsafe_allow_html=True)
 
     st.markdown("""
         <div class='sx-band'>
@@ -234,17 +261,8 @@ def login_page():
             <div class='sx-console-line'>A trading command console for the
                 <strong>Deriv</strong> markets — signals, risk, and execution
                 in one instrument.</div>
-            <div class='sx-status'>
-                <div class='sx-stat'><span class='sx-k'>DATABASE</span>
-                    <span class='sx-v'><span class='sx-dot'></span>{}</span></div>
-                <div class='sx-stat'><span class='sx-k'>BROKER</span>
-                    <span class='sx-v'><span class='{}'></span>{}</span></div>
-                <div class='sx-stat'><span class='sx-k'>MODULES</span>
-                    <span class='sx-v'>13 loaded</span></div>
-            </div>
         </div>
-    """.format(db_state == "offline" and "offline" or db_label, mode_color, env_mode.upper()),
-        unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     with st.form("sx_login_form"):
         st.markdown("""
@@ -271,6 +289,94 @@ def login_page():
     st.markdown("""
         <div class='sx-auth-foot'>Access is restricted. Credentials are
         provisioned by the environment — ask the operator if you lost yours.</div>
+    """, unsafe_allow_html=True)
+
+
+def landing_page():
+    """Public entry screen — trading-desk hero, product intro, then sign in."""
+    st.markdown(("""
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] * {
+            font-family: system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-feature-settings: 'tnum' 1; }
+        [data-testid="stAppViewContainer"] {
+            background:
+                linear-gradient(180deg, rgba(5,6,10,0.88) 0%, rgba(5,6,10,0.60) 40%, rgba(5,6,10,0.88) 100%),
+                url('__BG__') center 70%/cover no-repeat fixed !important; }
+        .sx-hero { margin: 14vh auto 0; max-width: 720px; text-align: center;
+            padding: 0 24px; }
+        .sx-wordmark { font-size: 3rem; font-weight: 800; letter-spacing: 0.30em;
+            color: #F8FAFC; margin-right: -0.30em; line-height: 1;
+            text-shadow: 0 2px 24px rgba(0,0,0,0.55); }
+        .sx-console-line { color: #94a3b8; font-size: 0.95rem; font-weight: 300;
+            margin: 14px auto 0; line-height: 1.6; max-width: 44ch; }
+        .sx-console-line strong { color: #e2e8f0; font-weight: 600; }
+        .sx-features { display: flex; flex-wrap: wrap; justify-content: center;
+            gap: 14px; max-width: 760px; margin: 34px auto 0; padding: 0 24px; }
+        .sx-feature { background: rgba(14,18,35,0.88); border: 1px solid #334155;
+            border-radius: 4px; padding: 18px; width: 218px; text-align: left;
+            backdrop-filter: blur(6px); }
+        .sx-feature strong { display: block; color: #F8FAFC; font-size: 0.78rem;
+            letter-spacing: 0.08em; margin-bottom: 7px; font-weight: 600; }
+        .sx-feature p { color: #94a3b8; font-size: 0.83rem; line-height: 1.55;
+            margin: 0; }
+        [data-testid="stElementContainer"]:has([data-testid="stButton"] button) {
+            width: 100%; }
+        [data-testid="stButton"] { text-align: center; margin-top: 30px; width: 100%; }
+        [data-testid="stButton"] button {
+            background: #22c55e !important; color: #06210f !important;
+            border: none; border-radius: 4px !important;
+            font-weight: 600 !important; font-size: 0.95rem !important;
+            letter-spacing: 0.02em;
+            min-height: 46px !important; padding: 0 34px !important;
+            display: inline-block; cursor: pointer; width: auto !important;
+            min-width: 300px;
+            transition: background 0.15s ease; }
+        [data-testid="stButton"] button:hover { background: #4ade80 !important; }
+        [data-testid="stButton"] button:focus-visible {
+            outline: 2px solid #F8FAFC; outline-offset: 2px; }
+        .sx-landing-foot { text-align: center; color: #64748b; font-size: 0.72rem;
+            margin: 40px auto 8vh; max-width: 52ch; line-height: 1.6; padding: 0 24px; }
+        @media (max-width: 1080px) { .sx-hero { margin-top: 9vh; } }
+        @media (max-width: 520px) {
+            .sx-wordmark { font-size: 2.1rem; white-space: nowrap; }
+            .sx-feature { width: 100%; }
+        }
+        @media (prefers-reduced-motion: reduce) { * { animation: none !important;
+            transition: none !important; } }
+        </style>
+    """).replace("__BG__", HERO_IMG_URL), unsafe_allow_html=True)
+
+    st.markdown("""
+        <div class='sx-hero'>
+            <div class='sx-wordmark'>SENTIENX</div>
+            <div class='sx-console-line'>A trading command console for the
+                <strong>Deriv</strong> markets — signals, risk, and execution
+                in one instrument.</div>
+        </div>
+        <div class='sx-features'>
+            <div class='sx-feature'><strong>MARKET INTELLIGENCE</strong>
+                <p>Live signals, sentiment scoring, and economic-calendar
+                context, gathered into one working screen.</p></div>
+            <div class='sx-feature'><strong>RISK ENGINE</strong>
+                <p>Value-at-Risk, portfolio allocation, and stress testing
+                before any money moves.</p></div>
+            <div class='sx-feature'><strong>EXECUTION CONSOLE</strong>
+                <p>Watchlists, price alerts, and bot control with a full
+                trading history behind them.</p></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("Continue to sign in", key="sx_landing_cta"):
+        st.session_state.view = "login"
+        st.rerun()
+
+    st.markdown("""
+        <div class='sx-landing-foot'>Access is restricted — sign in with the
+        credentials provisioned by the operator.<br>Imagery: Pexels,
+        free to use.</div>
     """, unsafe_allow_html=True)
 # Set up paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -303,6 +409,8 @@ if 'selected_tab' not in st.session_state:
     st.session_state.selected_tab = 0
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+if 'view' not in st.session_state:
+    st.session_state.view = 'landing'
 
 
 # =============================================================================
@@ -325,9 +433,93 @@ def display_footer():
 # DATABASE FUNCTIONS
 # =============================================================================
 
+@st.cache_data(ttl=10, show_spinner=False)
+def _deriv_accts() -> Dict:
+    return deriv_feed.accounts()
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _deriv_realtime(mode: str) -> Dict:
+    acct = _deriv_accts().get(mode, {})
+    return deriv_feed.account_realtime(acct.get("account_id", ""))
+
+
+def _deriv_mode() -> str:
+    return "real" if st.session_state.get("sx_acct_mode", "Demo").lower() == "real" else "demo"
+
+
+def _deriv_clear_cache():
+    _deriv_accts.clear()
+    _deriv_realtime.clear()
+
+
+def render_deriv_live_strip():
+    """Real-time Deriv account balances + live tick strip (read-only)."""
+    if not deriv_feed.ready():
+        return
+    try:
+        accts = _deriv_accts()
+    except Exception:
+        return
+    if not accts:
+        return
+
+    cols = st.columns(4)
+    real, demo = accts.get("real", {}), accts.get("demo", {})
+    with cols[0]:
+        st.metric("Real account", f"${float(real.get('balance', 0)):,.2f}",
+                  real.get("account_id"), delta_color="inverse")
+    with cols[1]:
+        st.metric("Demo account", f"${float(demo.get('balance', 0)):,.2f}",
+                  demo.get("account_id"), delta_color="inverse")
+
+    ticks = deriv_feed.latest_ticks()
+    for i, (sym, ticker) in enumerate(list(ticks.items())[:2]):
+        quote = ticker.get("quote")
+        if quote is None:
+            continue
+        ts = datetime.fromtimestamp(ticker.get("epoch", time.time()), tz=timezone.utc)
+        with cols[2 + i]:
+            st.metric(sym, f"{quote:,.4g}", ts.strftime("%H:%M:%S UTC"), delta_color="inverse")
+    if not ticks:
+        deriv_feed.start_ticks()
+
+
 def load_account_data() -> Dict:
     """Load live account data from API or database"""
-    # Try to fetch from API first
+    # Deriv live account first (new dev-portal API)
+    if deriv_feed.ready():
+        try:
+            mode = _deriv_mode()
+            live = _deriv_realtime(mode)
+            bal = float(live.get("balance") or 0.0)
+            return {
+                'balance': bal,
+                'equity': bal,
+                'free_margin': bal * 0.95,
+                'margin_level': 110.5,
+                'open_positions': len(live.get('positions') or []),
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0.0,
+                'profit_factor': 1.0,
+                'total_pnl': 0.0,
+                'daily_pnl': 0.0,
+                'best_trade': 0.0,
+                'worst_trade': 0.0,
+                'avg_trade': 0.0,
+                'sharpe_ratio': 1.8,
+                'max_drawdown': 5.2,
+                'connected': True,
+                'deriv_connected': True,
+                'account_type': mode.title(),
+                'deriv_trades': live.get('trades') or [],
+            }
+        except Exception:
+            pass
+
+    # Fallback: local API
     try:
         response = requests.get(f"{API_URL}/api/account", timeout=2)
         if response.status_code == 200:
@@ -349,10 +541,19 @@ def load_account_data() -> Dict:
 
     # Fallback to database
     try:
-        # Try to get Deriv balance (module may be absent; never fatal)
-        deriv_balance = 1000.0
+        # Deriv balance first, then legacy connector; never fatal
+        deriv_balance = 0.0
         deriv_connected = False
         account_type = 'Demo'
+        try:
+            if deriv_feed.ready():
+                mode = _deriv_mode()
+                acct = _deriv_accts().get(mode, {})
+                deriv_balance = float(acct.get('balance', 0.0))
+                deriv_connected = True
+                account_type = acct.get('account_type', mode).title()
+        except Exception:
+            pass
         try:
             from config import DERIV_CONFIG
             from deriv_connector import deriv_connector
@@ -376,7 +577,7 @@ def load_account_data() -> Dict:
             'losing_trades': 0,
             'win_rate': 0.0,
             'profit_factor': 1.0,
-            'total_pnl': deriv_balance - 1000.0,
+            'total_pnl': 0.0,
             'daily_pnl': 0.0,
             'best_trade': 0.0,
             'worst_trade': 0.0,
@@ -827,7 +1028,9 @@ def create_symbol_distribution():
 def tab_overview():
     """Main overview tab"""
     st.markdown("<div class='section-header'>Live Account Dashboard</div>", unsafe_allow_html=True)
-    
+
+    render_deriv_live_strip()
+
     account = load_account_data()
     
     # Key Metrics Row 1
@@ -1279,7 +1482,10 @@ def main():
     check_authentication()
     
     if not st.session_state.authenticated:
-        login_page()
+        if st.session_state.view == 'login':
+            login_page()
+        else:
+            landing_page()
         return
     
     # Header
@@ -1296,6 +1502,7 @@ def main():
 
         if st.button("Logout", use_container_width=True):
             st.session_state.authenticated = False
+            st.session_state.view = 'landing'
             st.rerun()
         
         st.divider()
@@ -1305,14 +1512,33 @@ def main():
             5, 300, 30, 5
         )
         st.session_state.refresh_interval = refresh_rate
+        st.checkbox("Live auto-refresh", value=False, key="sx_live_auto",
+                    help="Reloads the dashboard every refresh interval")
         
         st.divider()
         
         account = load_account_data()
-        st.markdown(f"**Account Status**")
-        st.write(f"Type: {account.get('account_type', 'Real')}")
-        st.write(f"Connection: {'Connected' if account.get('connected') else 'Disconnected'}")
-        
+        st.markdown("**Deriv accounts**")
+        if deriv_feed.ready():
+            prev = st.session_state.get("sx_acct_mode", "Demo")
+            st.radio("Active account", ["Demo", "Real"], index=0 if prev == "Demo" else 1,
+                     horizontal=True, key="sx_acct_mode",
+                     help="Demo for testing, Real for the live account")
+            if st.session_state.get("sx_acct_mode", "Demo") != prev:
+                _deriv_clear_cache()
+            try:
+                accts = _deriv_accts()
+                st.caption(f"Real · {accts.get('real', {}).get('account_id')} · "
+                           f"${float(accts.get('real', {}).get('balance', 0)):,.2f}")
+                st.caption(f"Demo · {accts.get('demo', {}).get('account_id')} · "
+                           f"${float(accts.get('demo', {}).get('balance', 0)):,.2f}")
+                st.caption(f"Connection: {'Live' if account.get('connected') else 'Disconnected'}")
+            except Exception:
+                st.caption("Deriv feed unreachable")
+        else:
+            st.caption("Deriv credentials not configured — set "
+                       "DERIV_PAT_TOKEN and DERIV_APP_ID_NEW.")
+
         st.divider()
         
         # Bot Control Section
@@ -1435,6 +1661,17 @@ def main():
     
     # Footer
     display_footer()
+
+    # Live auto-refresh — full rerun every interval when enabled
+    if st.session_state.get('sx_live_auto'):
+        try:
+            import streamlit.components.v1 as _components
+            _components.html(
+                "<script>setTimeout(function(){window.parent.location.reload();}, %d);</script>"
+                % (int(st.session_state.get('refresh_interval', 30)) * 1000),
+                height=0)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
