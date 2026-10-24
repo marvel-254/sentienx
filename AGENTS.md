@@ -32,6 +32,7 @@
 - Deploy status: `GET /v1/services/srv-dbdjdfjncjis73adijvg/deploys` with Bearer `$RENDER_API_KEY` (stored in `.render_env`, untracked)
 - Logs: `GET /v1/logs?ownerId=tea-d8t17777f7vs73blnoh0&resource=<svc-id>&limit=N&direction=forward`
 - API gotchas: private-repo services CANNOT be created via `POST /v1/services`; `autoDeploy` must be string `"yes"`; build/start commands go inside `serviceDetails.envSpecificDetails`
+- **GitHub repo `marvel-254/sentienx` is PUBLIC (user decision 2026-10-23)** — history is scrubbed of secrets; keep it clean, never commit tokens, keep `.env`/`.render_env` untracked
 - Do NOT "Apply render.yaml" on Render — resources were provisioned via API; blueprint sync would duplicate the database
 - Git history was rewritten (secrets scrubbed) on 2026-10-23 — old clones are stale
 

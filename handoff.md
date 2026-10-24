@@ -75,7 +75,8 @@ cd /home/marvel/Downloads/sentienx
   - Logs (new-style endpoint): `GET /v1/logs?ownerId=<team-id>&resource=<svc-id>&limit=N&direction=forward` — NOT `/v1/services/…/logs`
 - Auth on the dashboard: `SENTIENX_USER`/`SENTIENX_PASS` env vars, defaults marvel/olivertwist if unset (service currently uses defaults)
 - Env vars: DERIV_ENV=demo, DERIV_APP_ID, DERIV_API_TOKEN, FLASK_SECRET_KEY, PYTHON_VERSION=3.14.0, DATABASE_URL
-- SECURITY: `.render_env` contained a live Render API key committed to old git history — key was scrubbed in rewrite (commit b67b7a9f) but **rotate it anyway**; rotate the Deriv token too
+- SECURITY: `.render_env` contained a live Render API key committed to old git history — key was scrubbed in rewrite (commits after b67b7a9f) but **rotate it anyway**; rotate the Deriv token too
+- Repo kept PUBLIC (user decision 2026-10-23) because Render app-based private access kept failing; the deployable path with public repo: push → auto-deploy, else `POST /v1/services/{id}/deploys {clearCache:"do_not_clear", commitId:<full-sha>}`
 - Do NOT "Apply render.yaml" on Render for this repo: resources already provisioned via API; a blueprint sync would try to create a second database
 - Repo master was history-rewritten (force-push): old clones are stale, re-clone before pushing
 - Seed/transfer data: `DATABASE_URL=... python scripts/migrate_sqlite_to_postgres.py`
