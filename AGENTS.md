@@ -28,7 +28,7 @@
 - **Live URL: https://sentienx-dashboard.onrender.com** (login: `SENTIENX_USER`/`SENTIENX_PASS` env, defaults marvel/olivertwist)
 - Web service `sentienx-dashboard` `srv-dbdjdfjncjis73adijvg` (free) + Postgres `sentienx-db` `dpg-dbdj076q1p3s738pn42g-a` (free, oregon)
 - Free Postgres expires after 30 days — check date before relying on it
-- `autoDeploy` is ON: pushing to `master` re-deploys (~1–2 min)
+- `autoDeployTrigger` is `commit` but push-triggered auto-deploy does NOT fire (GitHub app webhook never got granted); deploy after pushing via `POST /v1/services/srv-dbdjdfjncjis73adijvg/deploys {clearCache:"do_not_clear", commitId:<full-sha>}` (Bearer `$RENDER_API_KEY`)
 - Deploy status: `GET /v1/services/srv-dbdjdfjncjis73adijvg/deploys` with Bearer `$RENDER_API_KEY` (stored in `.render_env`, untracked)
 - Logs: `GET /v1/logs?ownerId=tea-d8t17777f7vs73blnoh0&resource=<svc-id>&limit=N&direction=forward`
 - API gotchas: private-repo services CANNOT be created via `POST /v1/services`; `autoDeploy` must be string `"yes"`; build/start commands go inside `serviceDetails.envSpecificDetails`
