@@ -19,7 +19,9 @@
 ## Database
 - Canonical adapter: `src/core/db_adapter.py` (`get_adapter()` singleton)
 - Resolution: `DATABASE_URL` env → Postgres; else `SENTIENX_DB_PATH` or `src/sentienx_trading.db` (SQLite)
-- On Render, `render.yaml` injects `DATABASE_URL` from a free Postgres instance; local dev stays SQLite
+- Production DB: **Neon Postgres** project `steep-lab-94858233` (free forever, us-west-2); Render service env `DATABASE_URL` points at the Neon **pooled** URL (password lives in Render env only — never in repo)
+- Legacy Render free Postgres `sentienx-db` (dpg-dbdj076q1p3s738pn42g-a) expires 2026-11-22 — kept only as a throwaway backup; nothing reads it
+- Local dev stays SQLite (`DATABASE_URL` intentionally unset in `.env`)
 - Core tables: `trading_history`, `signals_history`; OpenStock tables: `watchlist`, `price_alerts`, `alert_events`
 - SQLite `?` placeholders are auto-translated to `%s` for psycopg2; don't put literal `?` in queries
 - Data transfer & verification: `scripts/migrate_sqlite_to_postgres.py`, `scripts/test_postgres_migration.py`
@@ -27,7 +29,7 @@
 ## Deployment
 - **Live URL: https://sentienx-dashboard.onrender.com** (login: `SENTIENX_USER`/`SENTIENX_PASS` env, defaults marvel/olivertwist)
 - Web service `sentienx-dashboard` `srv-dbdjdfjncjis73adijvg` (free) + Postgres `sentienx-db` `dpg-dbdj076q1p3s738pn42g-a` (free, oregon)
-- Free Postgres expires after 30 days — check date before relying on it
+- Migration deadline passed for DB (Neon, free forever); the *free web service tier* remains the constraint for uptime
 - `autoDeployTrigger` is `commit` but push-triggered auto-deploy does NOT fire (GitHub app webhook never got granted); deploy after pushing via `POST /v1/services/srv-dbdjdfjncjis73adijvg/deploys {clearCache:"do_not_clear", commitId:<full-sha>}` (Bearer `$RENDER_API_KEY`)
 - Deploy status: `GET /v1/services/srv-dbdjdfjncjis73adijvg/deploys` with Bearer `$RENDER_API_KEY` (stored in `.render_env`, untracked)
 - Logs: `GET /v1/logs?ownerId=tea-d8t17777f7vs73blnoh0&resource=<svc-id>&limit=N&direction=forward`
@@ -65,7 +67,7 @@
 - No tests for trading logic
 - Silent import failures mask broken features
 - Dual codebase (src/ vs root) causes confusion
-- Free Postgres instance expires (30 days) — deployed data is lost unless migrated
+- Free web service sleeps when idle (cold starts); Neon DB has no expiry concern
 
 ## What NOT to Do
 - Do not edit top-level duplicate files (use src/ only)
