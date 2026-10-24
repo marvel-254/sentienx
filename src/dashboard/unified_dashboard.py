@@ -123,21 +123,6 @@ st.markdown("""
     .warning { color: #ffaa00; }
     .section-header { color: #00d4ff; font-size: 20px; font-weight: bold; margin: 15px 0 10px 0; border-bottom: 2px solid #2d3561; padding-bottom: 10px; }
     .footer { background-color: #1a1f3a; border-top: 2px solid #2d3561; padding: 20px; margin-top: 40px; text-align: center; color: #a0a0a0; font-size: 12px; }
-    
-    .login-wrapper { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #2d3561 100%); }
-    .login-container { background: rgba(26, 31, 58, 0.95); backdrop-filter: blur(10px); padding: 50px; border-radius: 15px; max-width: 420px; width: 100%; border: 2px solid #00d4ff; box-shadow: 0 8px 32px rgba(0, 212, 255, 0.1); }
-    .login-title { color: #00d4ff; text-align: center; font-size: 32px; font-weight: bold; margin-bottom: 10px; letter-spacing: 2px; text-transform: uppercase; }
-    .login-subtitle { color: #a0a0a0; text-align: center; font-size: 14px; margin-bottom: 40px; font-weight: 300; letter-spacing: 1px; }
-    .login-divider { height: 2px; background: linear-gradient(90deg, transparent, #00d4ff, transparent); margin: 30px 0; }
-    .login-input-label { color: #00d4ff; font-size: 12px; font-weight: bold; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; display: block; }
-    input[type="text"], input[type="password"] { background-color: #0f1429 !important; border: 1px solid #2d3561 !important; color: #e0e0e0 !important; padding: 12px 15px !important; border-radius: 8px !important; font-size: 14px !important; margin-bottom: 20px !important; transition: all 0.2s ease !important; }
-    input[type="text"]:focus, input[type="password"]:focus { border: 2px solid #00d4ff !important; box-shadow: 0 0 15px rgba(0, 212, 255, 0.3) !important; background-color: #1a1f3a !important; }
-    .login-button { background-color: #00d4ff !important; color: #0a0e27 !important; border: none !important; padding: 14px 30px !important; border-radius: 8px !important; font-weight: bold !important; font-size: 14px !important; cursor: pointer !important; text-transform: uppercase !important; letter-spacing: 1.5px !important; transition: all 0.2s ease !important; width: 100% !important; }
-    .login-button:hover { background-color: #00f7ff !important; box-shadow: 0 0 20px rgba(0, 212, 255, 0.4) !important; }
-    .login-button:active { transform: scale(0.98) !important; }
-    .login-footer { text-align: center; margin-top: 30px; color: #a0a0a0; font-size: 12px; }
-    .login-demo-info { background-color: rgba(0, 212, 255, 0.1); border-left: 3px solid #00d4ff; padding: 15px; border-radius: 5px; margin-top: 20px; font-size: 13px; color: #00d4ff; transition: all 0.2s ease; }
-    .login-demo-info:hover { background-color: rgba(0, 212, 255, 0.15); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -148,57 +133,129 @@ def check_authentication():
         st.session_state.authenticated = False
 
 def login_page():
-    """Professional branded auth screen (the app's landing page)."""
-    # Hide sidebar/header chrome and paint the hero gradient until login.
+    """Branded auth screen — terminal-style instrument panel, not a SaaS card."""
+    # Hide sidebar/header chrome and paint the console background until login.
     st.markdown("""
         <style>
         [data-testid="stSidebar"] { display: none; }
         [data-testid="stHeader"] { background: transparent; }
         [data-testid="stAppViewContainer"] { background:
-            radial-gradient(1100px 560px at 72% -12%, rgba(34,197,94,0.09), transparent 60%),
-            radial-gradient(900px 520px at 8% 112%, rgba(59,130,246,0.11), transparent 55%),
-            #0a0e27 !important; }
-        .sx-auth-wrap { min-height: 90vh; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; }
-        .sx-auth-card { width: 100%; max-width: 400px; background: rgba(255,255,255,0.035);
-            border: 1px solid rgba(255,255,255,0.09); border-radius: 18px;
-            padding: 38px 36px 24px; backdrop-filter: blur(8px);
-            box-shadow: 0 24px 60px rgba(0,0,0,0.45); }
-        .sx-auth-card input { background: rgba(255,255,255,0.05) !important;
-            border: 1px solid rgba(255,255,255,0.12) !important; border-radius: 10px !important;
-            color: #e2e8f0 !important; }
-        .sx-auth-card input:focus { border-color: #22c55e !important;
-            box-shadow: 0 0 0 1px #22c55e !important; }
-        .sx-auth-card button { border: none !important; border-radius: 10px !important;
-            font-weight: 700; letter-spacing: 0.14em; color: #06130a !important;
-            background: linear-gradient(90deg, #22c55e, #4ade80) !important;
-            transition: transform 0.15s ease, box-shadow 0.15s ease; }
-        .sx-auth-card button:hover { transform: translateY(-1px);
-            box-shadow: 0 8px 22px rgba(34,197,94,0.35); }
-        .sx-brand { font-size: 2.1rem; font-weight: 800; letter-spacing: 0.35em;
-            text-align: center; margin-top: 4px;
-            background: linear-gradient(90deg, #e2e8f0, #22c55e 55%, #3b82f6);
-            -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .sx-tagline { text-align: center; color: #94a3b8; font-size: 0.8rem;
-            margin: 8px 0 26px; letter-spacing: 0.14em; }
-        .sx-label { color: #cbd5e1; font-size: 0.74rem; text-transform: uppercase;
-            letter-spacing: 0.14em; margin: 12px 2px 2px; }
-        .sx-features { display: flex; gap: 24px; justify-content: center; margin-top: 24px;
-            color: #64748b; font-size: 0.78rem; flex-wrap: wrap; }
-        .sx-auth-footer { text-align: center; color: #475569; font-size: 0.72rem; margin-top: 30px; }
+            radial-gradient(900px 480px at 85% -10%, rgba(34,197,94,0.05), transparent 60%),
+            #05060a !important; }
+        [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] * {
+            font-family: system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-feature-settings: 'tnum' 1; }
+        .sx-band { margin: 9vh auto 30px; max-width: 560px; text-align: center;
+            padding: 0 24px; }
+        .sx-wordmark { font-size: 2.6rem; font-weight: 800; letter-spacing: 0.30em;
+            color: #F8FAFC; margin-right: -0.30em; line-height: 1; }
+        .sx-console-line { color: #94a3b8; font-size: 0.92rem; font-weight: 300;
+            margin: 14px auto 0; line-height: 1.6; max-width: 40ch; }
+        .sx-console-line strong { color: #e2e8f0; font-weight: 600; }
+        .sx-status { display: flex; justify-content: center; gap: 28px;
+            margin: 26px auto 0; padding: 14px 0;
+            border-top: 1px solid #1e2536; border-bottom: 1px solid #1e2536;
+            max-width: 560px; }
+        .sx-stat { display: flex; flex-direction: column; gap: 4px; }
+        .sx-k { color: #64748b; font-size: 0.68rem; letter-spacing: 0.10em; }
+        .sx-v { color: #cbd5e1; font-size: 0.85rem; font-weight: 500; }
+        .sx-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+            display: inline-block; margin-right: 7px;
+            box-shadow: 0 0 6px rgba(34,197,94,0.8); vertical-align: middle; }
+        .sx-dot.amber { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.8); }
+        [data-testid="stForm"] { background: #0e1223; border: 1px solid #334155;
+            border-radius: 4px; padding: 40px 38px 30px !important;
+            box-shadow: 0 30px 70px rgba(0,0,0,0.5);
+            width: 100%; max-width: 440px; margin: 0 auto;
+            animation: sx-rise .5s ease-out both; }
+        @keyframes sx-rise { from { opacity: 0; transform: translateY(14px); }
+            to { opacity: 1; transform: translateY(0); } }
+        @media (prefers-reduced-motion: reduce) { [data-testid="stForm"] { animation: none; } }
+        .sx-card-title { color: #F8FAFC; font-size: 1.05rem; font-weight: 600;
+            margin-bottom: 2px; }
+        .sx-card-sub { color: #64748b; font-size: 0.8rem; margin-bottom: 18px; }
+        .sx-label { color: #94a3b8; font-size: 0.72rem; letter-spacing: 0.08em;
+            margin: 4px 0 0; }
+        [data-testid="stForm"] .sx-card-title { margin-top: 0; }
+        [data-testid="stForm"] input { background: #05060a !important;
+            border: 1px solid #334155 !important; border-radius: 4px !important;
+            color: #F8FAFC !important; font-size: 0.95rem !important;
+            box-shadow: none !important; outline: none !important;
+            caret-color: #F8FAFC; }
+        [data-testid="stForm"] [data-testid="stTextInputRootElement"] {
+            background: #05060a !important; box-shadow: none !important;
+            border: 1px solid #334155 !important; border-radius: 4px !important;
+            transition: border-color .15s ease; }
+        [data-testid="stForm"] [data-testid="stTextInputRootElement"]:focus-within {
+            border-color: #22c55e !important; box-shadow: 0 0 0 1px #22c55e !important; }
+        [data-testid="stForm"] input:focus { border-color: transparent !important;
+            box-shadow: none !important; outline: none !important; }
+        [data-testid="stForm"] input::placeholder { color: #64748b; }
+        [data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
+            background: #22c55e !important; color: #06210f !important;
+            border: none; border-radius: 4px !important;
+            font-weight: 600; font-size: 0.92rem; letter-spacing: 0.02em;
+            min-height: 44px !important; cursor: pointer;
+            transition: background 0.15s ease; }
+        [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {
+            background: #4ade80 !important; }
+        [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:focus-visible {
+            outline: 2px solid #F8FAFC; outline-offset: 2px; }
+        [data-testid="stForm"] [aria-label="Show password"] { display: none !important; }
+        .sx-auth-error { margin: 16px auto 0; padding: 10px 12px; border-radius: 4px;
+            width: 100%; max-width: 440px;
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.35);
+            color: #fca5a5; font-size: 0.83rem; }
+        .sx-auth-foot { text-align: center; color: #64748b; font-size: 0.72rem;
+            margin: 30px auto 6vh; line-height: 1.5; max-width: 48ch; }
+        @media (max-width: 1080px) {
+            .sx-band { margin-top: 6vh; }
+            .sx-status { gap: 18px; flex-wrap: wrap; }
+        }
+        @media (max-width: 520px) {
+            .sx-wordmark { font-size: 1.9rem; white-space: nowrap; }
+        }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div class='sx-auth-wrap'><div class='sx-auth-card'>", unsafe_allow_html=True)
-    st.markdown("<div class='sx-brand'>SENTIENX</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sx-tagline'>AI-POWERED TRADING COMMAND CENTER</div>", unsafe_allow_html=True)
+    # Live system readout for the header band — real values, not decoration.
+    env_mode = os.environ.get("DERIV_ENV", "demo")
+    try:
+        _db_adapter.connect()
+        db_state = db_label = "PostgreSQL" if getattr(_db_adapter, "_is_postgres", False) else "SQLite"
+    except Exception:
+        db_state, db_label = "offline", "storage"
+    mode_color = "sx-dot amber" if env_mode != "real" else "sx-dot"
+
+    st.markdown("""
+        <div class='sx-band'>
+            <div class='sx-wordmark'>SENTIENX</div>
+            <div class='sx-console-line'>A trading command console for the
+                <strong>Deriv</strong> markets — signals, risk, and execution
+                in one instrument.</div>
+            <div class='sx-status'>
+                <div class='sx-stat'><span class='sx-k'>DATABASE</span>
+                    <span class='sx-v'><span class='sx-dot'></span>{}</span></div>
+                <div class='sx-stat'><span class='sx-k'>BROKER</span>
+                    <span class='sx-v'><span class='{}'></span>{}</span></div>
+                <div class='sx-stat'><span class='sx-k'>MODULES</span>
+                    <span class='sx-v'>13 loaded</span></div>
+            </div>
+        </div>
+    """.format(db_state == "offline" and "offline" or db_label, mode_color, env_mode.upper()),
+        unsafe_allow_html=True)
 
     with st.form("sx_login_form"):
+        st.markdown("""
+                <div class='sx-card-title'>Sign in</div>
+                <div class='sx-card-sub'>to open the dashboard</div>
+        """, unsafe_allow_html=True)
         st.markdown("<div class='sx-label'>Username</div>", unsafe_allow_html=True)
         username = st.text_input("Username", key="login_username", label_visibility="collapsed")
         st.markdown("<div class='sx-label'>Password</div>", unsafe_allow_html=True)
         password = st.text_input("Password", type="password", key="login_password", label_visibility="collapsed")
-        submitted = st.form_submit_button("ENTER DASHBOARD", use_container_width=True)
+        submitted = st.form_submit_button("Enter dashboard", use_container_width=True)
 
     if submitted:
         expected_user = os.environ.get("SENTIENX_USER", "marvel")
@@ -207,18 +264,14 @@ def login_page():
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("\u274c Invalid username or password.")
+            st.markdown("<div class='sx-auth-error'>Invalid username or password."
+                        " Check the credentials and try again.</div>",
+                        unsafe_allow_html=True)
 
     st.markdown("""
-        <div class='sx-features'>
-            <span>📈 Live market data</span>
-            <span>🔔 Price alerts</span>
-            <span>🔥 Market heatmap</span>
-        </div>
-        <div class='sx-auth-footer'>SENTIENX Trading System · © 2025 · All Rights Reserved</div>
-        </div></div>
+        <div class='sx-auth-foot'>Access is restricted. Credentials are
+        provisioned by the environment — ask the operator if you lost yours.</div>
     """, unsafe_allow_html=True)
-
 # Set up paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_PATH = BASE_DIR / "logs"
